@@ -2,9 +2,12 @@ package breaker
 
 import (
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 )
 
 const (
@@ -15,22 +18,18 @@ const (
 	fuzzOps          = 8
 )
 
-// countingEvents counts transitions without testify's reflection cost.
-type countingEvents struct {
-	NoopEvents
-	transitions atomic.Int64
-}
-
-func (c *countingEvents) OnStateChange(StateChangeEvent) { c.transitions.Add(1) }
-
 // FuzzStateMachine drives random Allow/Record/clock/force sequences and
-// checks the breaker's invariants after every operation.
+// checks the breaker's invariants after every operation. Go requires fuzz
+// targets to be top-level FuzzXxx functions, so this one cannot live on a
+// suite; it uses the shared MockEvents and testify's require package.
 func FuzzStateMachine(f *testing.F) {
 	f.Add([]byte{0, 1, 0, 1, 3, 0, 1, 2, 4, 0, 5, 6, 0})
 	f.Add([]byte{0, 0, 0, 1, 1, 1, 3, 3, 0, 1, 0, 1})
 	f.Fuzz(func(t *testing.T, ops []byte) {
 		clock := newTestClock()
-		events := &countingEvents{}
+		events := newNoopMockEvents()
+		transitions := 0
+		events.On("OnStateChange", mock.Anything).Run(func(mock.Arguments) { transitions++ })
 		b, err := New(Config{
 			Name:             "fuzz",
 			Policies:         []Policy{ConsecutiveFailures{Count: 2}},
@@ -40,13 +39,11 @@ func FuzzStateMachine(f *testing.F) {
 			Events:           events,
 			Clock:            clock.Now,
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		var (
 			live        []Permit
 			stale       []Permit
-			transitions int64
+			seen        int
 			lastState   = StateClosed
 			lastAttempt int
 		)
@@ -80,44 +77,57 @@ func FuzzStateMachine(f *testing.F) {
 				stale = append(stale, live...)
 				live = nil
 			}
-			if got := events.transitions.Load(); got-transitions > 1 {
-				t.Fatalf("one op produced %d transitions", got-transitions)
+			require.LessOrEqual(t, transitions-seen, 1, "one op produced several transitions")
+			seen = transitions
+			require.LessOrEqual(t, snap.InFlight, uint32(fuzzMaxCalls), "in-flight exceeds max")
+			if snap.State == StateClosed {
+				require.Zero(t, snap.InFlight, "closed with calls in flight")
 			}
-			transitions = events.transitions.Load()
-			if snap.InFlight > fuzzMaxCalls {
-				t.Fatalf("in-flight %d exceeds max", snap.InFlight)
-			}
-			if snap.State == StateClosed && snap.InFlight != 0 {
-				t.Fatalf("closed with %d in flight", snap.InFlight)
-			}
-			if snap.State > StateHalfOpen {
-				t.Fatalf("bad state %d", snap.State)
-			}
-			if snap.State != StateClosed && lastState != StateClosed && snap.Attempt < lastAttempt {
-				t.Fatalf("attempt went backwards %d -> %d", lastAttempt, snap.Attempt)
+			require.LessOrEqual(t, snap.State, StateHalfOpen, "bad state")
+			if snap.State != StateClosed && lastState != StateClosed {
+				require.GreaterOrEqual(t, snap.Attempt, lastAttempt, "attempt went backwards")
 			}
 			lastState, lastAttempt = snap.State, snap.Attempt
 		}
 	})
 }
 
+// InvariantSuite holds the concurrency and timing invariants that are too
+// long-running for the fuzzer's per-input budget.
+type InvariantSuite struct {
+	suite.Suite
+	clock  *testClock
+	events *MockEvents
+}
+
+func TestInvariantSuite(t *testing.T) {
+	suite.Run(t, new(InvariantSuite))
+}
+
+func (s *InvariantSuite) SetupTest() {
+	s.clock = newTestClock()
+	s.events = newNoopMockEvents()
+}
+
+func (s *InvariantSuite) TearDownTest() {
+	s.events.AssertExpectations(s.T())
+}
+
 // TestStalePermitRaceAcrossGoroutines interleaves Allow with a trip so a
 // permit issued under the old packed word is never accepted afterwards.
-func TestStalePermitRaceAcrossGoroutines(t *testing.T) {
+func (s *InvariantSuite) TestStalePermitRaceAcrossGoroutines() {
 	const (
 		workers = 8
 		rounds  = 200
 	)
-	clock := newTestClock()
 	b, err := New(Config{
 		Name:         "race",
 		Policies:     []Policy{ConsecutiveFailures{Count: 1}},
 		OpenDuration: fuzzOpenDuration,
-		Clock:        clock.Now,
+		Events:       s.events,
+		Clock:        s.clock.Now,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	s.Require().NoError(err)
 	for range rounds {
 		var wg sync.WaitGroup
 		var permits [workers]Permit
@@ -140,20 +150,22 @@ func TestStalePermitRaceAcrossGoroutines(t *testing.T) {
 				b.Record(permits[i], OutcomeFailure, 0)
 			}
 		}
-		if b.State() == StateOpen && b.Counts() != before {
-			t.Fatal("stale permit accepted after trip")
+		if b.State() == StateOpen {
+			s.Require().Equal(before, b.Counts(), "stale permit accepted after trip")
 		}
 		b.Reset()
 	}
 }
 
-func TestLeakedSlotDetectedUnderSteadyProbes(t *testing.T) {
+// TestLeakedSlotDetectedUnderSteadyProbes keeps the other probe slots busy
+// and checks that the one slot nobody records still reopens the breaker
+// after ProbeTimeout.
+func (s *InvariantSuite) TestLeakedSlotDetectedUnderSteadyProbes() {
 	const (
 		maxCalls  = 3
 		successes = 1000
 		period    = time.Second
 	)
-	clock := newTestClock()
 	b, err := New(Config{
 		Name:              "leak",
 		Policies:          []Policy{ConsecutiveFailures{Count: 1}},
@@ -161,32 +173,27 @@ func TestLeakedSlotDetectedUnderSteadyProbes(t *testing.T) {
 		ProbeTimeout:      testProbeTimeout,
 		HalfOpenMaxCalls:  maxCalls,
 		HalfOpenSuccesses: successes,
-		Clock:             clock.Now,
+		Events:            s.events,
+		Clock:             s.clock.Now,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, _ := b.Allow()
+	s.Require().NoError(err)
+	p, err := b.Allow()
+	s.Require().NoError(err)
 	b.Record(p, OutcomeFailure, 0)
-	clock.advance(fuzzOpenDuration)
-	if leaked, err := b.Allow(); err != nil || !leaked.IsProbe() {
-		t.Fatalf("expected probe, got %v", err)
-	}
+	s.clock.advance(fuzzOpenDuration)
+	leaked, err := b.Allow()
+	s.Require().NoError(err)
+	s.Require().True(leaked.IsProbe())
 	for range int(testProbeTimeout / period) {
-		clock.advance(period)
+		s.clock.advance(period)
 		for range maxCalls - 1 {
 			q, err := b.Allow()
-			if err != nil {
-				if b.State() == StateOpen {
-					t.Fatalf("reopened early at %v", clock.now)
-				}
-				t.Fatal(err)
-			}
+			s.Require().NoError(err, "reopened early at %v", s.clock.now)
 			b.Record(q, OutcomeSuccess, 0)
 		}
 	}
-	clock.advance(time.Millisecond)
-	if _, err := b.Allow(); err == nil || b.Snapshot().State != StateOpen {
-		t.Fatalf("expected reopen on leaked slot, state %v err %v", b.State(), err)
-	}
+	s.clock.advance(time.Millisecond)
+	_, err = b.Allow()
+	s.Require().Error(err)
+	s.Require().Equal(StateOpen, b.Snapshot().State, "expected reopen on leaked slot")
 }
