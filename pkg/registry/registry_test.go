@@ -68,20 +68,20 @@ func (s *RegistrySuite) TestGetCreatesOnce() {
 	r := s.newRegistry()
 	s.factory.On("Make", "a").Return(config()).Once()
 	var (
-		wg   sync.WaitGroup
-		got  [testGoroutines]*breaker.Breaker
-		errs [testGoroutines]error
+		wg     sync.WaitGroup
+		actual [testGoroutines]*breaker.Breaker
+		errs   [testGoroutines]error
 	)
 	for i := range testGoroutines {
-		wg.Go(func() { got[i], errs[i] = r.Get("a") })
+		wg.Go(func() { actual[i], errs[i] = r.Get("a") })
 	}
 	wg.Wait()
 	for i := range testGoroutines {
 		s.Require().NoError(errs[i])
-		s.Same(got[0], got[i])
+		s.Same(actual[0], actual[i])
 	}
 	s.Equal(1, r.Len())
-	s.Equal("a", got[0].Name())
+	s.Equal("a", actual[0].Name())
 }
 
 func (s *RegistrySuite) TestFactoryNameKept() {
@@ -136,12 +136,12 @@ func (s *RegistrySuite) TestInvalidOptionPanics() {
 func (s *RegistrySuite) TestEventsInjectedWhenNil() {
 	own := &MockEvents{}
 	tests := []struct {
-		cfgEvents  breaker.Events
-		wantEvents *MockEvents
-		name       string
+		cfgEvents      breaker.Events
+		expectedEvents *MockEvents
+		name           string
 	}{
-		{name: "nil config events get registry events", cfgEvents: nil, wantEvents: s.events},
-		{name: "config events are kept", cfgEvents: own, wantEvents: own},
+		{name: "nil config events get registry events", cfgEvents: nil, expectedEvents: s.events},
+		{name: "config events are kept", cfgEvents: own, expectedEvents: own},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
@@ -149,14 +149,14 @@ func (s *RegistrySuite) TestEventsInjectedWhenNil() {
 			cfg := config()
 			cfg.Events = tt.cfgEvents
 			s.factory.On("Make", "a").Return(cfg).Once()
-			tt.wantEvents.On("OnCall", mock.Anything).Once()
-			tt.wantEvents.On("OnStateChange", mock.Anything).Once()
+			tt.expectedEvents.On("OnCall", mock.Anything).Once()
+			tt.expectedEvents.On("OnStateChange", mock.Anything).Once()
 			b, err := r.Get("a")
 			s.Require().NoError(err)
 			p, err := b.Allow()
 			s.Require().NoError(err)
 			b.Record(p, breaker.OutcomeFailure, 0)
-			tt.wantEvents.AssertExpectations(s.T())
+			tt.expectedEvents.AssertExpectations(s.T())
 		})
 	}
 }
@@ -165,19 +165,19 @@ func (s *RegistrySuite) TestLookup() {
 	r := s.newRegistry()
 	a := s.mustGet(r, "a")
 	tests := []struct {
-		want   *breaker.Breaker
-		name   string
-		key    string
-		wantOK bool
+		expected   *breaker.Breaker
+		name       string
+		key        string
+		expectedOK bool
 	}{
-		{name: "hit", key: "a", want: a, wantOK: true},
-		{name: "miss", key: "b", want: nil, wantOK: false},
+		{name: "hit", key: "a", expected: a, expectedOK: true},
+		{name: "miss", key: "b", expected: nil, expectedOK: false},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
 			b, ok := r.Lookup(tt.key)
-			s.Equal(tt.wantOK, ok)
-			s.Same(tt.want, b)
+			s.Equal(tt.expectedOK, ok)
+			s.Same(tt.expected, b)
 		})
 	}
 	s.Equal(1, r.Len())
@@ -194,10 +194,10 @@ func (s *RegistrySuite) TestEvictPrefersClosed() {
 	s.Equal(3, r.Len())
 	_, ok := r.Lookup("b")
 	s.False(ok)
-	for key, want := range map[string]*breaker.Breaker{"a": a, "c": c, "d": d} {
-		got, ok := r.Lookup(key)
+	for key, expected := range map[string]*breaker.Breaker{"a": a, "c": c, "d": d} {
+		actual, ok := r.Lookup(key)
 		s.True(ok, key)
-		s.Same(want, got)
+		s.Same(expected, actual)
 	}
 }
 
@@ -293,12 +293,12 @@ func (s *RegistrySuite) TestAccessGranularity() {
 	s.clock.advance(500 * time.Millisecond)
 	_, err = r.Get("a")
 	s.Require().NoError(err)
-	got := r.lastAccess("a")
-	s.Equal(created, got, "access inside the granularity window is not stored")
+	actual := r.lastAccess("a")
+	s.Equal(created, actual, "access inside the granularity window is not stored")
 
 	s.clock.advance(600 * time.Millisecond)
 	_, err = r.Get("a")
 	s.Require().NoError(err)
-	got = r.lastAccess("a")
-	s.Equal(s.clock.Now().UnixNano(), got, "access past the window is stored")
+	actual = r.lastAccess("a")
+	s.Equal(s.clock.Now().UnixNano(), actual, "access past the window is stored")
 }
