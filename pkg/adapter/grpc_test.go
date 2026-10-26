@@ -41,10 +41,11 @@ func (s *GRPCSuite) SetupTest() {
 	s.events = newNoopMockEvents()
 	s.service = &MockTestService{}
 	s.breaker = s.newBreaker()
-	s.lis = bufconn.Listen(testBufSize)
-	s.server = grpc.NewServer()
-	grpc_testing.RegisterTestServiceServer(s.server, s.service)
-	go func() { _ = s.server.Serve(s.lis) }()
+	lis := bufconn.Listen(testBufSize)
+	server := grpc.NewServer()
+	grpc_testing.RegisterTestServiceServer(server, s.service)
+	s.lis, s.server = lis, server
+	go func() { _ = server.Serve(lis) }()
 }
 
 func (s *GRPCSuite) TearDownTest() {
