@@ -45,3 +45,37 @@ func ExampleDo() {
 	fmt.Println(price, err)
 	// Output: 1999 <nil>
 }
+
+// metricsEvents forwards breaker events to a metrics client. Hooks run on
+// the calling goroutine after the breaker lock is released, so they must
+// not block: counters are incremented here and exported elsewhere.
+type metricsEvents struct {
+	breaker.NoopEvents
+	transitions map[string]int
+	rejections  map[string]int
+}
+
+func (m *metricsEvents) OnStateChange(ev breaker.StateChangeEvent) {
+	m.transitions[ev.Name+":"+ev.To.String()]++
+}
+
+func (m *metricsEvents) OnReject(ev breaker.RejectEvent) {
+	m.rejections[ev.Name]++
+}
+
+func ExampleEvents() {
+	metrics := &metricsEvents{transitions: map[string]int{}, rejections: map[string]int{}}
+	b, err := breaker.New(breaker.Config{
+		Name:     "search",
+		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
+		Events:   metrics,
+	})
+	if err != nil {
+		panic(err)
+	}
+	p, _ := b.Allow()
+	b.Record(p, breaker.OutcomeFailure, 0)
+	_, err = b.Allow()
+	fmt.Println(err != nil, metrics.transitions["search:open"], metrics.rejections["search"])
+	// Output: true 1 1
+}
