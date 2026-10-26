@@ -184,9 +184,10 @@ test.
   `test...` for doubles, `expected` for expectations, named consts for magic
   numbers, godoc on every exported identifier, README examples that compile,
   80% minimum coverage, `.github/workflows/build.yml` + `golangci-lint.yml`.
-- Struct fields are ordered by decreasing size and alignment so the compiler
-  inserts no padding. `govet` runs with the `fieldalignment` analyzer enabled
-  in `.golangci.yaml`.
+- Struct field order is dictated by `govet`'s `fieldalignment` analyzer,
+  enabled in `.golangci.yaml`; `golangci-lint run --fix` applies its
+  suggested order. Fields are never hand-ordered against it. One field per
+  line, no size comments.
 - Runtime dependencies of `pkg/breaker`: **none** beyond stdlib.
   `go-logslib/v2` and `golang.org/x/time/rate` are used by `pkg/hooks` only.
   `pkg/adapter` uses `google.golang.org/grpc` (for `grpc.go`). `pkg/composite`
@@ -457,7 +458,7 @@ probes. That is intended: slow probes are not recovery. It is a documented
 feature with its own test. The composite's adapter policy uses the same
 point to re-check the children.
 
-`Config.ReopenEarly func(Snapshot) bool` (default nil) is evaluated in
+`Config.ReopenEarly func() bool` (default nil) is evaluated in
 `Allow` while Open and not forced, before the `reopenAt` check. Returning
 true moves the breaker to HalfOpen immediately with `ReasonEarlyHalfOpen`.
 It runs under `recover` like a policy (a panic counts as false and fires
@@ -474,8 +475,9 @@ duration exceeds it is recorded as slow in addition to its outcome.
 - `Config.HalfOpenMaxCalls uint32` (default 1): max concurrent probes.
   Beyond that, `Allow` returns `ErrTooManyProbes`.
 - `Config.HalfOpenSuccesses uint32` (default = `HalfOpenMaxCalls`): total
-  probe successes required to close. Any probe failure reopens immediately,
-  so "total" and "consecutive" are the same thing here.
+  probe successes required to close. It is independent of
+  `HalfOpenMaxCalls` (concurrency): "1 concurrent probe, 3 sequential
+  successes" is valid. Any probe failure reopens immediately.
 - `Config.ProbeTimeout time.Duration` (default 60s): see the failure-modes
   section. Must be ≥ the caller's request timeout.
 - In-flight probes are an atomic counter plus a per-slot admission-time
@@ -505,13 +507,13 @@ Open entry; the result is stored as `reopenAt`. Provided in-core:
 ```go
 type Config struct {
     Policies          []Policy         // default FailureRate{0.5,20} + ConsecutiveFailures{5}
-    Window            Window           // default SlidingTimeWindow{10s, 10}
+    Window            WindowSpec       // SlidingCountWindow or SlidingTimeWindow; default SlidingTimeWindow{10s, 10}
     Backoff           Backoff          // overrides OpenDuration when set
     Events            Events           // default NoopEvents
     Name              string           // required; used in events and logs
     Classifier        Classifier       // default DefaultClassifier
     Clock             func() time.Time // default time.Now; tests inject
-    ReopenEarly       func(Snapshot) bool // default nil; see Policies
+    ReopenEarly       func() bool      // default nil; see Policies
     SlowCallDuration  time.Duration    // 0 = disabled
     OpenDuration      time.Duration    // default 30s; used when Backoff is nil
     ProbeTimeout      time.Duration    // default 60s
@@ -755,9 +757,9 @@ type Config struct {
 // and on every parent Allow while Open.
 type TripFunc func(openChildren, totalChildren int, aggregate breaker.Counts) bool
 
-func OpenChildren(min int) TripFunc
-func OpenChildrenRatio(ratio float64) TripFunc
-func AggregateFailureRate(threshold float64, minCalls uint32) TripFunc
+func OpenChildren(min int) TripFunc                            // panics if min < 0
+func OpenChildrenRatio(ratio float64) TripFunc                 // panics unless 0 <= ratio <= 1
+func AggregateFailureRate(threshold float64, minCalls uint32) TripFunc // panics unless 0 <= threshold <= 1
 func AllOf(fns ...TripFunc) TripFunc
 func AnyOf(fns ...TripFunc) TripFunc
 ```
@@ -782,7 +784,9 @@ leaf selection happens through `Pick` (below).
 
 - `AddChild(id string) (*breaker.Breaker, error)` creates a child from
   `ChildTemplate`; `AttachChild(c Child) error` adds an existing child,
-  including another `*Composite`. `RemoveChild(id string)`,
+  including another `*Composite`. A `*Composite` can have one parent;
+  attaching it twice returns `ErrAlreadyAttached` (shared sub-composites
+  would double-record and break depth accounting). `RemoveChild(id string)`,
   `Child(id string) (Child, bool)`, `Children() []string`.
 - Children live in an atomically swapped immutable slice; `AddChild` /
   `AttachChild` / `RemoveChild` copy-on-write under a mutex.
@@ -858,7 +862,10 @@ hooks defined for this purpose:
   unthrottled. Without the frozen aggregate the re-check would be dead for
   any rate term (the half-open window holds only probe successes);
 - its `ReopenEarly` returns `!Trip(cachedOpenChildren, len(children),
-  tripAggregate)` for the same reason: the parent's live `Counts()` while
+  tripAggregate)` (`tripAggregate` is an `atomic.Pointer[breaker.Counts]`
+  so this stays lock-free; the composite wraps the parent's `Events` with
+  an internal observer, in front of the user's hook, to clear it when the
+  parent closes) for the same reason: the parent's live `Counts()` while
   Open drains to empty after one window `Size`, which would make any
   aggregate term false and reopen the parent at 10s regardless of children.
   With the frozen aggregate, only child recovery can trigger
