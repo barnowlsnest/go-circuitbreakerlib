@@ -34,3 +34,4 @@ go.work.sum
 
 # superpowers scratch
 .superpowers/
+coverage.out
