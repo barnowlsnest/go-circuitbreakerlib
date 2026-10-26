@@ -23,8 +23,6 @@ const (
 	tripPolicyName      = "composite-trip"
 	hookClassifier      = "classifier"
 	hookOnReject        = "on-reject"
-	breakerOpen         = breaker.StateOpen
-	rejectedStates      = 3
 )
 
 // Config configures a Composite.
@@ -50,10 +48,9 @@ type Composite struct {
 	children      atomic.Pointer[[]Child]
 	tripAggregate atomic.Pointer[breaker.Counts]
 	owner         atomic.Pointer[Composite]
-	noHealthy     [rejectedStates]*breaker.RejectedError
+	scan          atomic.Pointer[scanResult]
+	noHealthy     [breaker.StateHalfOpen + 1]*breaker.RejectedError
 	mu            sync.Mutex
-	scanCache     atomic.Uint64
-	scanAt        atomic.Int64
 	rr            atomic.Int64
 	scanInterval  int64
 }
@@ -111,7 +108,6 @@ func New(cfg Config) (*Composite, error) {
 	c.classifier = parentCfg.Classifier
 	empty := make([]Child, 0)
 	c.children.Store(&empty)
-	c.scanAt.Store(scanNever)
 	for i := range c.noHealthy {
 		c.noHealthy[i] = &breaker.RejectedError{Err: ErrNoHealthyChildren, Name: parentCfg.Name, State: breaker.State(i)}
 	}
