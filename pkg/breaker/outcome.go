@@ -1,5 +1,7 @@
 package breaker
 
+const unknownName = "unknown"
+
 // Outcome is the classification of one call, as decided by a Classifier.
 type Outcome uint8
 
@@ -23,7 +25,7 @@ func (o Outcome) String() string {
 	case OutcomeIgnored:
 		return "ignored"
 	default:
-		return "unknown"
+		return unknownName
 	}
 }
 
