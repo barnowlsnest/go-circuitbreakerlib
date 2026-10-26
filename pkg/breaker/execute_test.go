@@ -10,14 +10,22 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-const testElapsed = 25 * time.Millisecond
+const (
+	testElapsed = 25 * time.Millisecond
+	testValue   = 42
+)
 
 var errBoom = errors.New("boom")
 
 type ExecuteSuite struct {
 	suite.Suite
-	clock  *testClock
-	events *MockEvents
+	clock      *MockClock
+	events     *MockEvents
+	policy     *MockPolicy
+	classifier *MockClassifier
+	fn         *MockFunc
+	valueFn    *MockValueFunc
+	ctx        context.Context
 }
 
 func TestExecuteSuite(t *testing.T) {
@@ -25,101 +33,199 @@ func TestExecuteSuite(t *testing.T) {
 }
 
 func (s *ExecuteSuite) SetupTest() {
-	s.clock = newTestClock()
+	s.clock = &MockClock{}
+	s.clock.On("Now").Return(newTestClock().now).Maybe()
 	s.events = newNoopMockEvents()
+	s.policy = &MockPolicy{}
+	s.policy.On("Name").Return("mock").Maybe()
+	s.policy.On("ShouldTrip", mock.Anything).Return(false).Maybe()
+	s.classifier = &MockClassifier{}
+	s.fn = &MockFunc{}
+	s.valueFn = &MockValueFunc{}
+	s.ctx = context.Background()
 }
 
 func (s *ExecuteSuite) TearDownTest() {
-	s.events.AssertExpectations(s.T())
+	for _, m := range []interface{ AssertExpectations(mock.TestingT) bool }{
+		s.clock, s.events, s.policy, s.classifier, s.fn, s.valueFn,
+	} {
+		m.AssertExpectations(s.T())
+	}
 }
 
 func (s *ExecuteSuite) newBreaker() *Breaker {
 	s.T().Helper()
 	b, err := New(Config{
 		Name:         testName,
-		Policies:     []Policy{ConsecutiveFailures{Count: testTripCount}},
+		Policies:     []Policy{s.policy},
 		OpenDuration: testOpenDuration,
 		Events:       s.events,
+		Classifier:   s.classifier.Classify,
 		Clock:        s.clock.Now,
 	})
 	s.Require().NoError(err)
 	return b
 }
 
-func (s *ExecuteSuite) TestCancelledContextNotRecorded() {
-	b := s.newBreaker()
-	ctx, cancel := context.WithCancel(context.Background())
+func (s *ExecuteSuite) TestExecute() {
+	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	called := false
-	err := b.Execute(ctx, func(context.Context) error { called = true; return nil })
-	s.ErrorIs(err, context.Canceled)
-	s.False(called)
-	s.Equal(uint32(0), b.Counts().Total)
+	tests := []struct {
+		ctx           context.Context
+		fnErr         error
+		wantErr       error
+		name          string
+		wantSuccesses uint32
+		wantFailures  uint32
+		fnPanics      bool
+		classified    Outcome
+		forceOpen     bool
+		wantCalled    bool
+		wantRejected  bool
+	}{
+		{
+			name:          "success recorded",
+			ctx:           context.Background(),
+			classified:    OutcomeSuccess,
+			wantCalled:    true,
+			wantSuccesses: 1,
+		},
+		{
+			name:         "error passes through and counts",
+			ctx:          context.Background(),
+			fnErr:        errBoom,
+			classified:   OutcomeFailure,
+			wantErr:      errBoom,
+			wantCalled:   true,
+			wantFailures: 1,
+		},
+		{
+			name:       "ignored outcome not counted",
+			ctx:        context.Background(),
+			fnErr:      errBoom,
+			classified: OutcomeIgnored,
+			wantErr:    errBoom,
+			wantCalled: true,
+		},
+		{
+			name:         "panic records failure and propagates",
+			ctx:          context.Background(),
+			fnPanics:     true,
+			wantCalled:   true,
+			wantFailures: 1,
+		},
+		{
+			name:    "canceled context not recorded",
+			ctx:     canceled,
+			wantErr: context.Canceled,
+		},
+		{
+			name:         "rejected when open",
+			ctx:          context.Background(),
+			forceOpen:    true,
+			wantErr:      ErrOpen,
+			wantRejected: true,
+		},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.SetupTest()
+			defer s.TearDownTest()
+			b := s.newBreaker()
+			if tt.forceOpen {
+				b.ForceOpen()
+			}
+			if tt.wantCalled {
+				call := s.fn.On("Call", tt.ctx).Return(tt.fnErr).Once()
+				if tt.fnPanics {
+					call.Run(func(mock.Arguments) { panic("fn boom") })
+				} else {
+					s.classifier.On("Classify", tt.ctx, tt.fnErr).Return(tt.classified).Once()
+				}
+			}
+			if tt.fnPanics {
+				s.Panics(func() { _ = b.Execute(tt.ctx, s.fn.Call) })
+			} else {
+				err := b.Execute(tt.ctx, s.fn.Call)
+				s.ErrorIs(err, tt.wantErr)
+				var re *RejectedError
+				s.Equal(tt.wantRejected, errors.As(err, &re))
+			}
+			counts := b.Counts()
+			s.Equal(tt.wantSuccesses, counts.Successes)
+			s.Equal(tt.wantFailures, counts.Failures)
+		})
+	}
 }
 
 func (s *ExecuteSuite) TestNilFunc() {
 	b := s.newBreaker()
-	s.ErrorIs(b.Execute(context.Background(), nil), ErrNilFunc)
-	_, err := Do[int](context.Background(), b, nil)
+	s.ErrorIs(b.Execute(s.ctx, nil), ErrNilFunc)
+	_, err := Do[int](s.ctx, b, nil)
 	s.ErrorIs(err, ErrNilFunc)
 }
 
-func (s *ExecuteSuite) TestRejectedWhenOpen() {
-	b := s.newBreaker()
-	b.ForceOpen()
-	called := false
-	err := b.Execute(context.Background(), func(context.Context) error { called = true; return nil })
-	s.ErrorIs(err, ErrOpen)
-	var re *RejectedError
-	s.ErrorAs(err, &re)
-	s.False(called)
-}
-
-func (s *ExecuteSuite) TestErrorPassesThroughAndCounts() {
-	b := s.newBreaker()
-	err := b.Execute(context.Background(), func(context.Context) error { return errBoom })
-	s.ErrorIs(err, errBoom)
-	s.Equal(uint32(1), b.Counts().Failures)
-}
-
-func (s *ExecuteSuite) TestPanicRecordsFailureAndPropagates() {
-	b := s.newBreaker()
-	s.Panics(func() {
-		_ = b.Execute(context.Background(), func(context.Context) error { panic("fn boom") })
-	})
-	s.Equal(uint32(1), b.Counts().Failures)
-}
-
 func (s *ExecuteSuite) TestElapsedMeasured() {
-	b := s.newBreaker()
-	err := b.Execute(context.Background(), func(context.Context) error {
-		s.clock.advance(testElapsed)
-		return nil
-	})
-	s.NoError(err)
-	s.events.AssertCalled(s.T(), "OnCall", mock.MatchedBy(func(ev CallEvent) bool {
+	s.clock.ExpectedCalls = nil
+	start := newTestClock().now
+	// New, Allow, and Execute's start each read the clock once; every read
+	// after that is Execute's end.
+	s.clock.On("Now").Return(start).Times(3)
+	s.clock.On("Now").Return(start.Add(testElapsed))
+	s.events = &MockEvents{}
+	s.events.On("OnCall", mock.MatchedBy(func(ev CallEvent) bool {
 		return ev.Elapsed == testElapsed && ev.Outcome == OutcomeSuccess
-	}))
+	})).Once()
+	s.fn.On("Call", s.ctx).Return(nil).Once()
+	s.classifier.On("Classify", s.ctx, nil).Return(OutcomeSuccess).Once()
+	b := s.newBreaker()
+	s.NoError(b.Execute(s.ctx, s.fn.Call))
 }
 
 func (s *ExecuteSuite) TestClassifierPanicIsFailure() {
-	b, err := New(Config{
-		Name:       testName,
-		Classifier: func(context.Context, error) Outcome { panic("classify boom") },
-		Events:     s.events,
-		Clock:      s.clock.Now,
-	})
-	s.Require().NoError(err)
-	s.NoError(b.Execute(context.Background(), func(context.Context) error { return nil }))
+	s.fn.On("Call", s.ctx).Return(nil).Once()
+	s.classifier.On("Classify", s.ctx, nil).Run(func(mock.Arguments) { panic("classify boom") }).Once()
+	s.events = &MockEvents{}
+	s.events.On("OnHookPanic", "classifier", "classify boom").Once()
+	s.events.On("OnCall", mock.Anything).Maybe()
+	b := s.newBreaker()
+	s.NoError(b.Execute(s.ctx, s.fn.Call))
 	s.Equal(uint32(1), b.Counts().Failures)
-	s.events.AssertCalled(s.T(), "OnHookPanic", "classifier", "classify boom")
 }
 
-func (s *ExecuteSuite) TestDoReturnsValue() {
+func (s *ExecuteSuite) TestPolicyTripsAfterExecute() {
+	s.policy.ExpectedCalls = nil
+	s.policy.On("Name").Return("mock").Maybe()
+	s.policy.On("ShouldTrip", Counts{Total: 1, Failures: 1, ConsecutiveFailures: 1}).Return(true).Once()
+	s.fn.On("Call", s.ctx).Return(errBoom).Once()
+	s.classifier.On("Classify", s.ctx, errBoom).Return(OutcomeFailure).Once()
 	b := s.newBreaker()
-	const expected = 42
-	v, err := Do(context.Background(), b, func(context.Context) (int, error) { return expected, nil })
-	s.NoError(err)
-	s.Equal(expected, v)
-	s.Equal(uint32(1), b.Counts().Successes)
+	s.ErrorIs(b.Execute(s.ctx, s.fn.Call), errBoom)
+	s.Equal(StateOpen, b.State())
+}
+
+func (s *ExecuteSuite) TestDo() {
+	tests := []struct {
+		fnErr      error
+		wantErr    error
+		name       string
+		value      int
+		wantValue  int
+		classified Outcome
+	}{
+		{name: "returns value", value: testValue, classified: OutcomeSuccess, wantValue: testValue},
+		{name: "returns error and zero value", fnErr: errBoom, classified: OutcomeFailure, wantErr: errBoom},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.SetupTest()
+			defer s.TearDownTest()
+			s.valueFn.On("Call", s.ctx).Return(tt.value, tt.fnErr).Once()
+			s.classifier.On("Classify", s.ctx, tt.fnErr).Return(tt.classified).Once()
+			b := s.newBreaker()
+			v, err := Do(s.ctx, b, s.valueFn.Call)
+			s.ErrorIs(err, tt.wantErr)
+			s.Equal(tt.wantValue, v)
+		})
+	}
 }
