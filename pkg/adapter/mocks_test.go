@@ -1,9 +1,12 @@
 package adapter
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/stretchr/testify/mock"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/interop/grpc_testing"
 
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
@@ -51,4 +54,23 @@ func newNoopMockEvents() *MockEvents {
 	m.On("OnReject", mock.Anything).Maybe()
 	m.On("OnHookPanic", mock.Anything, mock.Anything).Maybe()
 	return m
+}
+
+// MockTestService is a testify mock of the grpc_testing TestService.
+type MockTestService struct {
+	grpc_testing.UnimplementedTestServiceServer
+	mock.Mock
+}
+
+func (m *MockTestService) UnaryCall(_ context.Context, req *grpc_testing.SimpleRequest) (*grpc_testing.SimpleResponse, error) {
+	args := m.Called(req)
+	resp, _ := args.Get(0).(*grpc_testing.SimpleResponse)
+	return resp, args.Error(1)
+}
+
+func (m *MockTestService) StreamingOutputCall(
+	req *grpc_testing.StreamingOutputCallRequest,
+	stream grpc.ServerStreamingServer[grpc_testing.StreamingOutputCallResponse],
+) error {
+	return m.Called(req, stream).Error(0)
 }

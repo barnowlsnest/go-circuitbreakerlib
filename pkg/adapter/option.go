@@ -3,6 +3,8 @@ package adapter
 import (
 	"fmt"
 
+	"google.golang.org/grpc/codes"
+
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/registry"
 )
@@ -44,6 +46,9 @@ type settings struct {
 	registry       *registry.Registry
 	httpKey        HTTPKeyFunc
 	httpClassifier HTTPClassifier
+	grpcKey        GRPCKeyFunc
+	grpcClassifier GRPCClassifier
+	grpcRejectCode codes.Code
 }
 
 // WithBreaker protects every call with one breaker.
