@@ -238,7 +238,7 @@ stateDiagram-v2
 
     Open --> HalfOpen : Allow() called and now >= reopenAt<br/>(CAS, exactly one caller wins and<br/>takes the first probe slot; reason = ReasonTimeout)
 
-    Open --> HalfOpen : Allow() called and<br/>Config.ReopenEarly(snapshot) == true<br/>(reason = ReasonEarlyHalfOpen)
+    Open --> HalfOpen : Allow() called and<br/>Config.ReopenEarly() == true<br/>(reason = ReasonEarlyHalfOpen)
 
     HalfOpen --> Closed : HalfOpenSuccesses probe successes and<br/>no Policy trips on the closing Record<br/>(reason = ReasonHalfOpenSuccess, attempt = 0,<br/>window cleared)
     HalfOpen --> Open : HalfOpenSuccesses probe successes but<br/>a Policy still trips on the closing Record<br/>(reason = policy name, attempt + 1)

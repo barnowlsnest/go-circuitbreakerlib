@@ -67,10 +67,10 @@
 - Delete: nothing (`main.go` does not exist)
 
 **Interfaces:**
-- Produces: `task sanity`, `task go-test`, `task go-build`, `task go-lint`, `task go-bench` (`go test -bench=. -benchmem -run=^$ ./...`), `task go-cover` (`go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1` piped through an awk check that fails below 80.0).
+- Produces: `task sanity`, `task go-test`, `task go-build`, `task go-lint`, `task go-bench` (`go test -bench=. -benchmem -run=^$ ./...`), `task go-cover` (`go tool cover -func=coverage.out | tail -1` piped through an awk check that fails below 80.0; the profile comes from `go-test`, so the suite runs once).
 
 - [ ] **Step 1:** `git checkout -b feat/scaffold main`.
-- [ ] **Step 2:** Copy `Taskfile.yaml` from go-asynctasklib; set `MODULE_PATH`; add `go-bench` and `go-cover` tasks; `go-test` runs `go test -v -race -cover ./...`; `sanity` runs `go-cover` after `go-test`.
+- [ ] **Step 2:** Copy `Taskfile.yaml` from go-asynctasklib; set `MODULE_PATH`; add `go-bench` and `go-cover` tasks; `go-test` runs `go test -v -race -coverprofile=coverage.out ./...`; `sanity` runs `go-cover` after `go-test`; `coverage.out` is gitignored.
 - [ ] **Step 3:** Copy `.golangci.yaml` from go-asynctasklib; change local prefix; add under `linters.settings`: `govet: { enable: [fieldalignment] }`.
 - [ ] **Step 4:** Copy both workflows from go-asynctasklib; add a `Coverage` step running `task go-cover` to `build.yml`.
 - [ ] **Step 5:** No dependencies are added here. `testify` and `goleak` arrive with the first tests in PR 2a.
@@ -154,7 +154,7 @@ Branch from `feat/breaker-types`. Tasks 5, 6, 7. Files: `state.go`, `permit.go`,
 ### Task 5: State machine — Closed/Open/HalfOpen with permits
 
 **Files:**
-- Create: `pkg/breaker/state.go`, `permit.go`, `breaker.go`, `snapshot.go`, `breaker_test.go`
+- Create: `pkg/breaker/state.go`, `permit.go`, `breaker.go`, `breaker_test.go`
 
 **Interfaces:**
 - Produces:
@@ -168,7 +168,7 @@ Branch from `feat/breaker-types`. Tasks 5, 6, 7. Files: `state.go`, `permit.go`,
   func (b *Breaker) Name() string; State() State; Counts() Counts; Snapshot() Snapshot; HookPanics() uint64
   func (b *Breaker) ForceOpen(); ForceClose(); Reset()
   ```
-  Internal layout: `packed atomic.Uint64` (`epoch<<2 | state`, epoch starts at 1), `reopenAtNanos atomic.Int64` (relative to `base time.Time` captured in `New`), `forced atomic.Bool`, `inFlight atomic.Int32`, `probeAdmitted []int64` (len `HalfOpenMaxCalls`; stores relative nanos **+1** so that 0 means free even when a probe is admitted at the base instant, which every injected-clock test does), `mu sync.Mutex`, `window Window`, `attempt int`, `openRejected, halfOpenRejected *RejectedError` (pre-allocated), `hookPanics atomic.Uint64`.
+  Internal layout: `packed atomic.Uint64` (`epoch<<2 | state`, epoch starts at 1), `reopenAtNanos atomic.Int64` (relative to `base time.Time` captured in `New`), `forced atomic.Bool`, `inFlight atomic.Int32`, `probeAdmitted []int64` (len `HalfOpenMaxCalls`; stores relative nanos **+1** so that 0 means free even when a probe is admitted at the base instant, which every injected-clock test does), `mu sync.Mutex`, `win window`, `attempt int`, `openRejected, halfOpenRejected *RejectedError` (pre-allocated), `hookPanics atomic.Uint64`.
   Transition helper: `func (b *Breaker) transition(to State, reason Reason, now time.Time) StateChangeEvent` called under `mu`; fires `OnStateChange` after unlock.
 
 - [ ] **Step 1:** `git checkout -b feat/breaker-core feat/breaker-types`. Write `BreakerSuite` with an injected `testClock` (`now time.Time; advance(d)`) and `MockEvents` with `.On("OnStateChange", mock.MatchedBy(...))` assertions on `From/To/Reason/Attempt`:
@@ -225,7 +225,7 @@ Branch from `feat/breaker-types`. Tasks 5, 6, 7. Files: `state.go`, `permit.go`,
 
 - [ ] **Step 1:** `FuzzStateMachine(f *testing.F)`: input bytes decode to ops {Allow, RecordCurrent(outcome), RecordStale(outcome), Advance(d), ForceOpen, ForceClose, Reset}; after each op assert: `InFlight >= 0 && InFlight <= HalfOpenMaxCalls`; `attempt` non-decreasing between Closed entries; state-change events count equals observed transitions (recording `MockEvents` replaced by a simple counter type here); Closed ⇒ `InFlight == 0`; a permit admitted in Closed is never accepted after a trip. Also a goroutine variant: 8 goroutines interleaving `Allow` with one goroutine tripping; assert no stale acceptance.
 - [ ] **Step 2:** Leaked-slot test (Review Focus 2): `HalfOpenMaxCalls=3`; slot A admitted at t0 never recorded; every 1s two probes admitted and recorded Success with `HalfOpenSuccesses=1000`; at t0+60s+1ms `Allow` → Open, `Reason==ReasonProbeTimeout`.
-- [ ] **Step 3:** Benchmarks per the spec table: `BenchmarkAllowRecordClosedCount`, `...ClosedTime`, `BenchmarkAllowOpen`, `BenchmarkExecuteParallel8`, `BenchmarkExecuteParallel32`. The parallel ones use an explicit fan-out, not `RunParallel`: `benchParallel(b, n int)` starts exactly `n` goroutines via `sync.WaitGroup`, each running `b.N/n` iterations, with `b.ResetTimer()` after setup. Record ns/op, allocs, and `runtime.GOMAXPROCS(0)` in the PR body. Gate: 0 allocs on the Closed and Open paths; throughput at 32 ≥ 80% of throughput at 8.
+- [ ] **Step 3:** Benchmarks per the spec table: `BenchmarkAllowRecordClosedCount`, `...ClosedTime`, `BenchmarkAllowOpen`, `BenchmarkExecuteParallel8`, `BenchmarkExecuteParallel32`. The parallel ones use an explicit fan-out, not `RunParallel`: `benchParallel(b, n int)` starts exactly `n` goroutines via `sync.WaitGroup`, each running `b.N/n` iterations with the last goroutine taking the remainder so every one of `b.N` ops is counted, with `b.ResetTimer()` after setup. Record ns/op, allocs, and `runtime.GOMAXPROCS(0)` in the PR body. Gate: 0 allocs on the Closed and Open paths; throughput at 32 ≥ 80% of throughput at 8.
 - [ ] **Step 4:** `go test -fuzz=FuzzStateMachine -fuzztime=30s ./pkg/breaker` passes; `task go-bench` numbers recorded. `task sanity`.
 - [ ] **Step 5:** Commit `test(breaker): fuzz invariants and benchmarks`. Push. `gh pr create --base feat/breaker-types --title "feat(breaker): core state machine"` with benchmark table in the body.
 
@@ -289,7 +289,7 @@ Files in `pkg/composite`: `doc.go`, `composite.go`, `child.go`, `lease.go`, `tri
 
 ### Task 10: Trip functions
 
-- [ ] **Step 1:** `git checkout -b feat/composite feat/registry`. `go get github.com/barnowlsnest/go-datalib/v5`. `TripSuite` table tests for `OpenChildren`, `OpenChildrenRatio` (ratio with 0 children is false), `AggregateFailureRate`, `AllOf`, `AnyOf`; invalid args (ratio > 1, ratio < 0, min < 0, threshold > 1) **panic at construction** (`assert.Panics`), the same contract as `regexp.MustCompile`: misconfiguration fails loudly at startup, never silently at request time. Godoc states it.
+- [ ] **Step 1:** `git checkout -b feat/composite feat/registry`. `go get github.com/barnowlsnest/go-datalib/v5`. `TripSuite` table tests for `OpenChildren`, `OpenChildrenRatio` (ratio with 0 children is false), `AggregateFailureRate`, `AllOf`, `AnyOf`; invalid args (ratio > 1, ratio < 0, min < 1 since `OpenChildren(0)` would be "always tripped", threshold > 1) **panic at construction** (`assert.Panics`), the same contract as `regexp.MustCompile`: misconfiguration fails loudly at startup, never silently at request time. Godoc states it.
 - [ ] **Step 2:** Implement in `trip.go`. Commit `feat(composite): trip functions`.
 
 ### Task 11: Children, scan cache, and parent breaker
@@ -298,7 +298,7 @@ Files in `pkg/composite`: `doc.go`, `composite.go`, `child.go`, `lease.go`, `tri
 
 **Interfaces:**
 - Produces: `Child` interface; `Config`; `New(cfg Config) (*Composite, error)`; `AddChild`, `AttachChild`, `RemoveChild`, `Child`, `Children`; `Name`, `State`, `Allow`, `Record` (so `*Composite` is a `Child`); `ErrInvalidConfig` (re-exported alias to `breaker.ErrInvalidConfig`), `ErrDuplicateChild`, `ErrNoHealthyChildren`, `ErrTooDeep`, `ErrNilChild`.
-  Internal: `children atomic.Pointer[[]Child]`, `scan struct{ open, total atomic.Int32; at atomic.Int64 }`, `tripAggregate atomic.Pointer[breaker.Counts]` (set by the adapter policy when it trips, read lock-free by `ReopenEarly`, cleared by an internal `breaker.Events` observer that `New` chains in front of `cfg.Events` on the **parent only** and that watches for `To == StateClosed`), `rr atomic.Uint32` round-robin index, `parent atomic.Pointer[Composite]` (set by `AttachChild`; non-nil → `ErrAlreadyAttached`). Errors add `ErrAlreadyAttached`.
+  Internal: `children atomic.Pointer[[]Child]`, `scan struct{ open, total atomic.Int32; at atomic.Int64 }`, `tripAggregate atomic.Pointer[breaker.Counts]` (set by the adapter policy when it trips, read lock-free by `ReopenEarly`, cleared by an internal `breaker.Events` observer that `New` chains in front of `cfg.Events` on the **parent only** and that watches for `To == StateClosed`), `rr atomic.Uint32` round-robin index, `parent atomic.Pointer[Composite]` (set by `AttachChild`; non-nil → `ErrAlreadyAttached`). Errors add `ErrAlreadyAttached`. The single-parent rule applies to `*Composite` children only; a `*breaker.Breaker` leaf may be attached to several composites because each `Lease` path takes its own permit on it. `AttachChild`'s godoc states this asymmetry.
 
 - [ ] **Step 1:** Tests (`testClock` shared by parent and children via `ChildTemplate`):
   - `TestParentPoliciesRejected`: `Parent.Policies` non-empty → `ErrInvalidConfig`.
