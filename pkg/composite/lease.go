@@ -39,7 +39,8 @@ func (l Lease) Path() []string {
 }
 
 // Pick takes a permit from the parent and then from the first child, in
-// round-robin order, that admits the call; composite children are walked
+// round-robin order starting after the last child that admitted, that
+// admits the call; composite children are walked
 // the same way. A parent rejection returns its *breaker.RejectedError.
 // When no child admits, every permit taken is released and the error is a
 // *breaker.RejectedError wrapping ErrNoHealthyChildren, whose State is the
@@ -66,11 +67,13 @@ func (c *Composite) pick(l *Lease) error {
 	l.depth++
 	children := *c.children.Load()
 	n := len(children)
-	start := int(c.rr.Add(1) - 1)
+	start := int(c.rr.Load())
 	for i := range n {
-		child := children[(start+i)%n]
+		idx := (start + i) % n
+		child := children[idx]
 		if sub, ok := child.(*Composite); ok {
 			if sub.pick(l) == nil {
+				c.rr.Store(int64(idx + 1))
 				return nil
 			}
 			continue
@@ -81,6 +84,7 @@ func (c *Composite) pick(l *Lease) error {
 		}
 		l.Leaf = child
 		l.permits[l.depth] = cp
+		c.rr.Store(int64(idx + 1))
 		return nil
 	}
 	l.depth--

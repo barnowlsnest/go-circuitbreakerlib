@@ -54,7 +54,7 @@ type Composite struct {
 	mu            sync.Mutex
 	scanCache     atomic.Uint64
 	scanAt        atomic.Int64
-	rr            atomic.Uint32
+	rr            atomic.Int64
 	scanInterval  int64
 }
 
@@ -186,7 +186,9 @@ func (p tripPolicy) ShouldTrip(counts breaker.Counts) bool {
 	if !p.c.trip(open, total, agg) {
 		return false
 	}
-	p.c.tripAggregate.Store(&agg)
+	frozen := new(breaker.Counts)
+	*frozen = agg
+	p.c.tripAggregate.Store(frozen)
 	return true
 }
 

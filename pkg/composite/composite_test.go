@@ -24,7 +24,9 @@ const (
 	testHalfOpenCalls = 1
 )
 
-type CompositeSuite struct {
+// baseSuite holds the fixture shared by the composite suites. It has no test
+// methods of its own.
+type baseSuite struct {
 	suite.Suite
 	clock     *testClock
 	events    *MockEvents
@@ -32,22 +34,26 @@ type CompositeSuite struct {
 	childOpen time.Duration
 }
 
+type CompositeSuite struct {
+	baseSuite
+}
+
 func TestCompositeSuite(t *testing.T) {
 	suite.Run(t, new(CompositeSuite))
 }
 
-func (s *CompositeSuite) SetupTest() {
+func (s *baseSuite) SetupTest() {
 	s.clock = newTestClock()
 	s.events = newNoopMockEvents()
 	s.childTrip = 1
 	s.childOpen = testChildOpen
 }
 
-func (s *CompositeSuite) TearDownTest() {
+func (s *baseSuite) TearDownTest() {
 	s.events.AssertExpectations(s.T())
 }
 
-func (s *CompositeSuite) template(id string) breaker.Config {
+func (s *baseSuite) template(id string) breaker.Config {
 	return breaker.Config{
 		Name:         id,
 		Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: s.childTrip}},
@@ -56,7 +62,7 @@ func (s *CompositeSuite) template(id string) breaker.Config {
 	}
 }
 
-func (s *CompositeSuite) config(name string, trip TripFunc) Config {
+func (s *baseSuite) config(name string, trip TripFunc) Config {
 	return Config{
 		ChildTemplate: s.template,
 		Trip:          trip,
@@ -72,7 +78,7 @@ func (s *CompositeSuite) config(name string, trip TripFunc) Config {
 }
 
 // mustNew builds a composite with n leaves named a, b, c, ...
-func (s *CompositeSuite) mustNew(trip TripFunc, leaves ...string) (c *Composite, byID map[string]*breaker.Breaker) {
+func (s *baseSuite) mustNew(trip TripFunc, leaves ...string) (c *Composite, byID map[string]*breaker.Breaker) {
 	s.T().Helper()
 	c, err := New(s.config(testName, trip))
 	s.Require().NoError(err)
@@ -86,7 +92,7 @@ func (s *CompositeSuite) mustNew(trip TripFunc, leaves ...string) (c *Composite,
 }
 
 // trip opens b through its own policy, then lets the scan cache expire.
-func (s *CompositeSuite) trip(b *breaker.Breaker) {
+func (s *baseSuite) trip(b *breaker.Breaker) {
 	s.T().Helper()
 	p, err := b.Allow()
 	s.Require().NoError(err)
@@ -96,14 +102,14 @@ func (s *CompositeSuite) trip(b *breaker.Breaker) {
 }
 
 // forceOpen forces b Open, then lets the scan cache expire.
-func (s *CompositeSuite) forceOpen(b *breaker.Breaker) {
+func (s *baseSuite) forceOpen(b *breaker.Breaker) {
 	s.T().Helper()
 	b.ForceOpen()
 	s.clock.advance(testScanInterval)
 }
 
 // record runs n calls through c with the given number of failures.
-func (s *CompositeSuite) record(c *Composite, n, failures int) {
+func (s *baseSuite) record(c *Composite, n, failures int) {
 	s.T().Helper()
 	for i := range n {
 		l, err := c.Pick()
