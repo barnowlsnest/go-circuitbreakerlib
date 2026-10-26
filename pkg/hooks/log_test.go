@@ -158,11 +158,11 @@ func (s *LogEventsSuite) TestOtherTransitionsAreInfo() {
 			ev.OnStateChange(s.stateChange(tt.from, tt.to))
 			lines := s.lines()
 			s.Require().Len(lines, 1)
-			want := "INFO"
+			expected := "INFO"
 			if tt.to == breaker.StateOpen {
-				want = "ERROR"
+				expected = "ERROR"
 			}
-			s.Equal(want, lines[0]["level"])
+			s.Equal(expected, lines[0]["level"])
 		})
 	}
 }
