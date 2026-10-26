@@ -2,7 +2,9 @@ package adapter
 
 import (
 	"context"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"google.golang.org/grpc"
@@ -74,3 +76,48 @@ func (m *MockTestService) StreamingOutputCall(
 ) error {
 	return m.Called(req, stream).Error(0)
 }
+
+// MockContextDialer is a testify mock of ContextDialer.
+type MockContextDialer struct {
+	mock.Mock
+}
+
+func (m *MockContextDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	args := m.Called(ctx, network, address)
+	conn, _ := args.Get(0).(net.Conn)
+	return conn, args.Error(1)
+}
+
+// MockConn is a testify mock of net.Conn.
+type MockConn struct {
+	mock.Mock
+}
+
+func (m *MockConn) Read(p []byte) (int, error) {
+	args := m.Called(p)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *MockConn) Write(p []byte) (int, error) {
+	args := m.Called(p)
+	return args.Int(0), args.Error(1)
+}
+
+func (m *MockConn) Close() error                       { return m.Called().Error(0) }
+func (m *MockConn) LocalAddr() net.Addr                { addr, _ := m.Called().Get(0).(net.Addr); return addr }
+func (m *MockConn) RemoteAddr() net.Addr               { addr, _ := m.Called().Get(0).(net.Addr); return addr }
+func (m *MockConn) SetDeadline(t time.Time) error      { return m.Called(t).Error(0) }
+func (m *MockConn) SetReadDeadline(t time.Time) error  { return m.Called(t).Error(0) }
+func (m *MockConn) SetWriteDeadline(t time.Time) error { return m.Called(t).Error(0) }
+
+// testClock is an injectable clock.
+type testClock struct {
+	now time.Time
+}
+
+func newTestClock() *testClock {
+	return &testClock{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+}
+
+func (c *testClock) Now() time.Time          { return c.now }
+func (c *testClock) advance(d time.Duration) { c.now = c.now.Add(d) }
