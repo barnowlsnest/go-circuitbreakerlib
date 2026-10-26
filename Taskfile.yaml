@@ -1,0 +1,69 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  ALL: ./...
+  COVER_MIN: 80
+
+env:
+  MODULE_PATH: github.com/barnowlsnest/go-circuitbreakerlib
+
+tasks:
+  go-update:
+    cmds:
+      - go mod tidy
+
+  go-build:
+    cmds:
+      - go build '{{.ALL}}'
+
+  go-fmt:
+    cmds:
+      - go fmt '{{.ALL}}'
+
+  go-vet:
+    cmds:
+      - go vet '{{.ALL}}'
+
+  go-test:
+    cmds:
+      - go test -v -race -coverprofile=coverage.out '{{.ALL}}'
+
+  go-cover:
+    desc: Fail when total statement coverage is below COVER_MIN percent.
+    cmds:
+      - |
+        if [ "$(grep -vc '^mode:' coverage.out)" -eq 0 ]; then echo "no statements to cover"; exit 0; fi
+        total=$(go tool cover -func=coverage.out | tail -1 | awk '{sub("%","",$3); print $3}')
+        echo "total coverage: ${total}%"
+        awk -v t="$total" -v m="{{.COVER_MIN}}" 'BEGIN { if (t+0 < m+0) { print "coverage " t "% is below " m "%"; exit 1 } }'
+
+  go-bench:
+    cmds:
+      - go test -bench=. -benchmem -run='^$' '{{.ALL}}'
+
+  go-lint:
+    cmds:
+      - golangci-lint run --fix
+
+  go-clean:
+    cmds:
+      - go clean -testcache
+
+  sanity:
+    deps:
+      - go-update
+      - go-clean
+    cmds:
+      - task: go-fmt
+      - task: go-vet
+      - task: go-lint
+      - task: go-test
+      - task: go-cover
+
+  build:
+    deps:
+      - sanity
+    cmds:
+      - task: go-build
