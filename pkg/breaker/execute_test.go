@@ -71,60 +71,60 @@ func (s *ExecuteSuite) TestExecute() {
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	tests := []struct {
-		ctx           context.Context
-		fnErr         error
-		wantErr       error
-		name          string
-		wantSuccesses uint32
-		wantFailures  uint32
-		fnPanics      bool
-		classified    Outcome
-		forceOpen     bool
-		wantCalled    bool
-		wantRejected  bool
+		ctx               context.Context
+		fnErr             error
+		expectedErr       error
+		name              string
+		expectedSuccesses uint32
+		expectedFailures  uint32
+		fnPanics          bool
+		classified        Outcome
+		forceOpen         bool
+		expectedCalled    bool
+		expectedRejected  bool
 	}{
 		{
-			name:          "success recorded",
-			ctx:           context.Background(),
-			classified:    OutcomeSuccess,
-			wantCalled:    true,
-			wantSuccesses: 1,
+			name:              "success recorded",
+			ctx:               context.Background(),
+			classified:        OutcomeSuccess,
+			expectedCalled:    true,
+			expectedSuccesses: 1,
 		},
 		{
-			name:         "error passes through and counts",
-			ctx:          context.Background(),
-			fnErr:        errBoom,
-			classified:   OutcomeFailure,
-			wantErr:      errBoom,
-			wantCalled:   true,
-			wantFailures: 1,
+			name:             "error passes through and counts",
+			ctx:              context.Background(),
+			fnErr:            errBoom,
+			classified:       OutcomeFailure,
+			expectedErr:      errBoom,
+			expectedCalled:   true,
+			expectedFailures: 1,
 		},
 		{
-			name:       "ignored outcome not counted",
-			ctx:        context.Background(),
-			fnErr:      errBoom,
-			classified: OutcomeIgnored,
-			wantErr:    errBoom,
-			wantCalled: true,
+			name:           "ignored outcome not counted",
+			ctx:            context.Background(),
+			fnErr:          errBoom,
+			classified:     OutcomeIgnored,
+			expectedErr:    errBoom,
+			expectedCalled: true,
 		},
 		{
-			name:         "panic records failure and propagates",
-			ctx:          context.Background(),
-			fnPanics:     true,
-			wantCalled:   true,
-			wantFailures: 1,
+			name:             "panic records failure and propagates",
+			ctx:              context.Background(),
+			fnPanics:         true,
+			expectedCalled:   true,
+			expectedFailures: 1,
 		},
 		{
-			name:    "canceled context not recorded",
-			ctx:     canceled,
-			wantErr: context.Canceled,
+			name:        "canceled context not recorded",
+			ctx:         canceled,
+			expectedErr: context.Canceled,
 		},
 		{
-			name:         "rejected when open",
-			ctx:          context.Background(),
-			forceOpen:    true,
-			wantErr:      ErrOpen,
-			wantRejected: true,
+			name:             "rejected when open",
+			ctx:              context.Background(),
+			forceOpen:        true,
+			expectedErr:      ErrOpen,
+			expectedRejected: true,
 		},
 	}
 	for _, tt := range tests {
@@ -135,7 +135,7 @@ func (s *ExecuteSuite) TestExecute() {
 			if tt.forceOpen {
 				b.ForceOpen()
 			}
-			if tt.wantCalled {
+			if tt.expectedCalled {
 				call := s.fn.On("Call", tt.ctx).Return(tt.fnErr).Once()
 				if tt.fnPanics {
 					call.Run(func(mock.Arguments) { panic("fn boom") })
@@ -147,13 +147,13 @@ func (s *ExecuteSuite) TestExecute() {
 				s.Panics(func() { _ = b.Execute(tt.ctx, s.fn.Call) })
 			} else {
 				err := b.Execute(tt.ctx, s.fn.Call)
-				s.ErrorIs(err, tt.wantErr)
+				s.ErrorIs(err, tt.expectedErr)
 				var re *RejectedError
-				s.Equal(tt.wantRejected, errors.As(err, &re))
+				s.Equal(tt.expectedRejected, errors.As(err, &re))
 			}
 			counts := b.Counts()
-			s.Equal(tt.wantSuccesses, counts.Successes)
-			s.Equal(tt.wantFailures, counts.Failures)
+			s.Equal(tt.expectedSuccesses, counts.Successes)
+			s.Equal(tt.expectedFailures, counts.Failures)
 		})
 	}
 }
@@ -206,15 +206,15 @@ func (s *ExecuteSuite) TestPolicyTripsAfterExecute() {
 
 func (s *ExecuteSuite) TestDo() {
 	tests := []struct {
-		fnErr      error
-		wantErr    error
-		name       string
-		value      int
-		wantValue  int
-		classified Outcome
+		fnErr         error
+		expectedErr   error
+		name          string
+		value         int
+		expectedValue int
+		classified    Outcome
 	}{
-		{name: "returns value", value: testValue, classified: OutcomeSuccess, wantValue: testValue},
-		{name: "returns error and zero value", fnErr: errBoom, classified: OutcomeFailure, wantErr: errBoom},
+		{name: "returns value", value: testValue, classified: OutcomeSuccess, expectedValue: testValue},
+		{name: "returns error and zero value", fnErr: errBoom, classified: OutcomeFailure, expectedErr: errBoom},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
@@ -224,8 +224,8 @@ func (s *ExecuteSuite) TestDo() {
 			s.classifier.On("Classify", s.ctx, tt.fnErr).Return(tt.classified).Once()
 			b := s.newBreaker()
 			v, err := Do(s.ctx, b, s.valueFn.Call)
-			s.ErrorIs(err, tt.wantErr)
-			s.Equal(tt.wantValue, v)
+			s.ErrorIs(err, tt.expectedErr)
+			s.Equal(tt.expectedValue, v)
 		})
 	}
 }
