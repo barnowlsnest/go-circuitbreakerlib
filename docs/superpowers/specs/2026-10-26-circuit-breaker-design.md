@@ -421,8 +421,10 @@ type Counts struct {
 ```
 
 Implementation: a single `sync.Mutex` per breaker protects window mutation
-and state transitions. `Allow` in Closed is lock-free. `Record` takes the
-lock. If the parallel benchmark gate fails, the builder shards the window per
+and state transitions. `Allow` in Closed and the Open rejection path are
+lock-free; HalfOpen probe admission (and its `ErrTooManyProbes` rejection)
+takes the lock, since slot bookkeeping and the probe-timeout check live
+there. `Record` takes the lock. If the parallel benchmark gate fails, the builder shards the window per
 `pkg/serial`'s cache-line-aligned pattern; in that case `ConsecutiveFailures`
 stays a single global atomic (sharding it would make it approximate).
 
@@ -995,8 +997,12 @@ stalled peer and a caller-set deadline are indistinguishable at this level;
 a successful operation is recorded as `OutcomeSuccess` when
 `permit.IsProbe()` is true, so pooled connections that never re-dial can
 still close a HalfOpen breaker, and as `OutcomeIgnored` otherwise, so
-ordinary traffic does not swamp the window. Cost is one `Allow`+`Record`
-per operation; the non-probe success path is lock-free.
+ordinary traffic does not swamp the window. Only `Write` acts as a probe: a
+`Read` that is handed a probe slot releases it at once (`OutcomeIgnored`)
+and runs untracked, because a `Read` on an idle pooled connection blocks
+for as long as the peer stays quiet and would otherwise hold the HalfOpen
+breaker's only slot until `ProbeTimeout` reopened it. Cost is one
+`Allow`+`Record` per operation; the non-probe success path is lock-free.
 
 Errors returned by the wrapper for a rejection implement `net.Error`
 (`Timeout()` false, `Temporary()` false) and unwrap to `*RejectedError`, so

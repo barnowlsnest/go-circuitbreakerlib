@@ -486,7 +486,10 @@ deadline is ignored because a stalled peer and a short caller deadline look
 the same there. A successful operation counts as a success only when its
 permit is a half-open probe, so pooled connections that never re-dial can
 still close a HalfOpen breaker without ordinary traffic flooding the
-window. Tracking is off by default because the wrapper hides
+window. Only `Write` acts as a probe: a `Read` handed a probe slot gives it
+back at once and runs untracked, because a `Read` on an idle pooled
+connection can block for as long as the peer stays quiet and would hold the
+HalfOpen breaker hostage. Tracking is off by default because the wrapper hides
 `*net.TCPConn` from TLS and HTTP/2 stacks that type-assert on it; the
 wrapper exposes `Unwrap() net.Conn` and forwards `ReadFrom`, `WriteTo`,
 `CloseRead`, `CloseWrite`, and `SyscallConn`.
