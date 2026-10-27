@@ -26,6 +26,7 @@ type entry struct {
 type Registry struct {
 	m           sync.Map
 	factory     Factory
+	start       time.Time
 	clock       func() time.Time
 	onEvict     func(key string, b *breaker.Breaker)
 	events      breaker.Events
@@ -37,11 +38,13 @@ type Registry struct {
 	granularity int64
 }
 
-// defaultRand seeds eviction sampling once per process. Sampling picks
+// newDefaultRand seeds eviction sampling for one registry. Sampling picks
 // which entries to inspect; it has no security role.
 //
 //nolint:gosec
-var defaultRand = rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), uint64(time.Now().UnixNano())))
+func newDefaultRand(seed time.Time) *rand.Rand {
+	return rand.New(rand.NewPCG(uint64(seed.UnixNano()), uint64(seed.Nanosecond())))
+}
 
 // New returns a registry that builds breakers with factory. It panics with
 // ErrNilFactory when factory is nil and with ErrInvalidOption on a bad
@@ -52,16 +55,20 @@ func New(factory Factory, opts ...Option) *Registry {
 	}
 	o := options{
 		clock:        time.Now,
-		rand:         defaultRand,
 		evictSamples: DefaultEvictSamples,
 		granularity:  DefaultAccessGranularity,
 	}
 	for _, opt := range opts {
 		opt(&o)
 	}
+	start := o.clock()
+	if o.rand == nil {
+		o.rand = newDefaultRand(start)
+	}
 	return &Registry{
 		factory:     factory,
 		clock:       o.clock,
+		start:       start,
 		onEvict:     o.onEvict,
 		events:      o.events,
 		rand:        o.rand,
@@ -124,10 +131,14 @@ func (r *Registry) Len() int {
 	return len(r.entries)
 }
 
+// elapsed is the time since the registry was created, so access times
+// compare by the clock's monotonic reading rather than the wall clock.
+func (r *Registry) elapsed() int64 { return r.clock().Sub(r.start).Nanoseconds() }
+
 // touch stores the access time only when the stored one is older than the
 // granularity, so a hot key does not bounce a cache line between cores.
 func (r *Registry) touch(e *entry) {
-	now := r.clock().UnixNano()
+	now := r.elapsed()
 	if now-e.lastAccess.Load() >= r.granularity {
 		e.lastAccess.Store(now)
 	}
@@ -160,7 +171,7 @@ func (r *Registry) create(key string) (*breaker.Breaker, error) {
 		r.unlink(victim)
 	}
 	e := &entry{b: b, key: key, index: len(r.entries)}
-	e.lastAccess.Store(r.clock().UnixNano())
+	e.lastAccess.Store(r.elapsed())
 	r.entries = append(r.entries, e)
 	r.m.Store(key, e)
 	r.mu.Unlock()

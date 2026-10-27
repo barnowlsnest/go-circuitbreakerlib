@@ -156,3 +156,13 @@ func (s *WindowSuite) TestTimeWindowDefaultBuckets() {
 	s.True(ok)
 	s.Len(w.buckets, testDefaultBucket)
 }
+
+func (s *WindowSuite) TestTimeWindowRecordBeforeOriginCountsInFirstBucket() {
+	w := s.newTime()
+	width := testTimeWindow / testTimeBuckets
+	w.record(s.base, OutcomeFailure, false)
+	w.record(s.base.Add(-2*width), OutcomeSuccess, false)
+	c := w.counts(s.base)
+	s.Equal(uint32(2), c.Total)
+	s.Equal(uint32(1), c.Failures)
+}

@@ -1,10 +1,14 @@
 package composite
 
-import "github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
+import (
+	"time"
+
+	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
+)
 
 // scanResult is one count of the children, taken at a point in time.
 type scanResult struct {
-	at    int64
+	at    time.Time
 	open  int
 	total int
 }
@@ -13,9 +17,13 @@ type scanResult struct {
 // Config.ScanInterval. It runs outside every lock; two callers racing
 // simply compute the same answer twice.
 func (c *Composite) refreshScan() {
-	now := c.clock().UnixNano()
-	if last := c.scan.Load(); last != nil && now-last.at < c.scanInterval {
-		return
+	now := c.clock()
+	last := c.scan.Load()
+	if last != nil {
+		age := now.Sub(last.at)
+		if age < c.scanInterval {
+			return
+		}
 	}
 	children := *c.children.Load()
 	result := &scanResult{at: now, total: len(children)}

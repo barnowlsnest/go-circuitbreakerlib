@@ -145,7 +145,7 @@ func (c *Composite) classify(ctx context.Context, err error) (o breaker.Outcome)
 	defer func() {
 		if r := recover(); r != nil {
 			o = breaker.OutcomeFailure
-			c.events.OnHookPanic(hookClassifier, r)
+			c.fireHookPanic(c.events, hookClassifier, r)
 		}
 	}()
 	return c.classifier(ctx, err)

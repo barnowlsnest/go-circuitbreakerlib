@@ -1,6 +1,7 @@
 package registry
 
-// lastAccess returns the stored access time of key in Unix nanoseconds.
+// lastAccess returns the stored access time of key in nanoseconds since the
+// registry was created.
 // key must be present.
 func (r *Registry) lastAccess(key string) int64 {
 	v, _ := r.m.Load(key)

@@ -62,6 +62,16 @@ func (w *timeWindow) index(now time.Time) int64 {
 		w.started = true
 		w.origin = now
 	}
+	return w.current(now)
+}
+
+// current is the bucket index for now; an instant before origin, which a
+// caller that read the clock before another caller started the window can
+// produce, lands in the first bucket.
+func (w *timeWindow) current(now time.Time) int64 {
+	if now.Before(w.origin) {
+		return 0
+	}
 	return int64(now.Sub(w.origin) / w.width)
 }
 
@@ -86,7 +96,7 @@ func (w *timeWindow) counts(now time.Time) Counts {
 	if !w.started {
 		return c
 	}
-	cur := int64(now.Sub(w.origin) / w.width)
+	cur := w.current(now)
 	n := int64(len(w.buckets))
 	for i := range w.buckets {
 		b := &w.buckets[i]
