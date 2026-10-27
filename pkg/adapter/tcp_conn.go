@@ -18,7 +18,10 @@ import (
 // is ignored because a stalled peer and a short caller deadline look the
 // same here. A successful operation counts as a success only when the
 // permit is a half-open probe, so pooled connections can close a HalfOpen
-// breaker without ordinary traffic flooding the window.
+// breaker without ordinary traffic flooding the window. Only Writes probe:
+// a Read handed a probe slot gives it back at once and runs untracked,
+// because a Read on an idle pooled connection can block for as long as the
+// peer stays quiet and would hold the HalfOpen breaker hostage.
 type trackedConn struct {
 	net.Conn
 	breaker *breaker.Breaker
@@ -41,12 +44,12 @@ func (c *trackedConn) Unwrap() net.Conn { return c.Conn }
 
 // Read implements net.Conn.
 func (c *trackedConn) Read(p []byte) (int, error) {
-	return c.track(func() (int, error) { return c.Conn.Read(p) })
+	return c.track(func() (int, error) { return c.Conn.Read(p) }, readOp)
 }
 
 // Write implements net.Conn.
 func (c *trackedConn) Write(p []byte) (int, error) {
-	return c.track(func() (int, error) { return c.Conn.Write(p) })
+	return c.track(func() (int, error) { return c.Conn.Write(p) }, writeOp)
 }
 
 // ReadFrom implements io.ReaderFrom. A conn that supports it is used
@@ -56,7 +59,7 @@ func (c *trackedConn) ReadFrom(r io.Reader) (int64, error) {
 	if !ok {
 		return io.Copy(writerOnly{c}, r)
 	}
-	return c.track64(func() (int64, error) { return rf.ReadFrom(r) })
+	return c.track64(func() (int64, error) { return rf.ReadFrom(r) }, writeOp)
 }
 
 // WriteTo implements io.WriterTo. A conn that supports it is used directly
@@ -66,7 +69,7 @@ func (c *trackedConn) WriteTo(w io.Writer) (int64, error) {
 	if !ok {
 		return io.Copy(w, readerOnly{c})
 	}
-	return c.track64(func() (int64, error) { return wt.WriteTo(w) })
+	return c.track64(func() (int64, error) { return wt.WriteTo(w) }, readOp)
 }
 
 // CloseRead forwards to the conn, or returns errors.ErrUnsupported.
@@ -93,11 +96,22 @@ func (c *trackedConn) SyscallConn() (syscall.RawConn, error) {
 	return nil, errors.ErrUnsupported
 }
 
+// ioKind says whether a tracked operation reads from or writes to the peer.
+type ioKind bool
+
+const (
+	readOp  ioKind = true
+	writeOp ioKind = false
+)
+
 // track runs op under one permit and records its outcome.
-func (c *trackedConn) track(op func() (int, error)) (int, error) {
-	p, err := c.breaker.Allow()
+func (c *trackedConn) track(op func() (int, error), kind ioKind) (int, error) {
+	p, tracked, err := c.allow(kind)
 	if err != nil {
-		return 0, rejectConn(err)
+		return 0, err
+	}
+	if !tracked {
+		return op()
 	}
 	start := time.Now()
 	n, err := op()
@@ -106,15 +120,33 @@ func (c *trackedConn) track(op func() (int, error)) (int, error) {
 }
 
 // track64 is track for the 64-bit copy interfaces.
-func (c *trackedConn) track64(op func() (int64, error)) (int64, error) {
-	p, err := c.breaker.Allow()
+func (c *trackedConn) track64(op func() (int64, error), kind ioKind) (int64, error) {
+	p, tracked, err := c.allow(kind)
 	if err != nil {
-		return 0, rejectConn(err)
+		return 0, err
+	}
+	if !tracked {
+		return op()
 	}
 	start := time.Now()
 	n, err := op()
 	c.breaker.Record(p, classifyIO(p, err), time.Since(start))
 	return n, err
+}
+
+// allow takes a permit for one operation. A read that is handed a probe
+// slot returns it immediately and reports tracked=false, so the read runs
+// without a permit and never counts as a probe.
+func (c *trackedConn) allow(kind ioKind) (p breaker.Permit, tracked bool, err error) {
+	p, err = c.breaker.Allow()
+	if err != nil {
+		return breaker.Permit{}, false, rejectConn(err)
+	}
+	if kind == readOp && p.IsProbe() {
+		c.breaker.Record(p, breaker.OutcomeIgnored, 0)
+		return breaker.Permit{}, false, nil
+	}
+	return p, true, nil
 }
 
 // rejectConn wraps a rejection so it satisfies net.Error.
