@@ -108,7 +108,7 @@ func (d *TCPDialer) DialContext(ctx context.Context, network, address string) (n
 	}
 	start := time.Now()
 	conn, err := d.next.DialContext(ctx, network, address)
-	b.Record(p, classifyTCP(d.settings.tcpClassifier, ctx, err), time.Since(start))
+	b.Record(p, classifyTCP(b, d.settings.tcpClassifier, ctx, err), time.Since(start))
 	if err != nil {
 		return nil, err
 	}
@@ -118,11 +118,13 @@ func (d *TCPDialer) DialContext(ctx context.Context, network, address string) (n
 	return conn, nil
 }
 
-// classifyTCP runs fn under recover; a panicking classifier is a failure.
-func classifyTCP(fn TCPClassifier, ctx context.Context, err error) (o breaker.Outcome) {
+// classifyTCP runs fn under recover; a panicking classifier is a failure
+// reported through b's OnHookPanic.
+func classifyTCP(b *breaker.Breaker, fn TCPClassifier, ctx context.Context, err error) (o breaker.Outcome) {
 	defer func() {
 		if r := recover(); r != nil {
 			o = breaker.OutcomeFailure
+			b.ReportHookPanic(hookClassifier, r)
 		}
 	}()
 	return fn(ctx, err)

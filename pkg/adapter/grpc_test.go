@@ -253,6 +253,7 @@ func (s *GRPCSuite) TestClassifierPanicIsFailure() {
 	_, err = s.client(unary, nil).UnaryCall(context.Background(), &grpc_testing.SimpleRequest{})
 	s.NoError(err)
 	s.Equal(uint32(1), s.breaker.Counts().Failures)
+	s.events.AssertCalled(s.T(), "OnHookPanic", hookClassifier, "classify boom")
 }
 
 func (s *GRPCSuite) TestRejectedErrorUnwraps() {

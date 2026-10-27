@@ -9,6 +9,8 @@ import (
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/registry"
 )
 
+const hookClassifier = "classifier"
+
 // proto tags an option with the protocol it belongs to.
 type proto uint8
 

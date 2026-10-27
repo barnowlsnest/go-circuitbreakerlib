@@ -203,6 +203,19 @@ func (s *TCPSuite) TestCustomKeyAndClassifier() {
 	s.Equal(uint32(0), b.Counts().Total)
 }
 
+func (s *TCPSuite) TestClassifierPanicIsFailure() {
+	d, err := NewTCPDialer(s.next, WithBreaker(s.breaker), WithTCPClassifier(
+		func(context.Context, error) breaker.Outcome { panic("classify boom") },
+	))
+	s.Require().NoError(err)
+	s.next.On("DialContext", mock.Anything, testNetwork, testAddress).Return(s.conn, nil).Once()
+	conn, err := d.DialContext(context.Background(), testNetwork, testAddress)
+	s.Require().NoError(err)
+	s.Same(s.conn, conn)
+	s.Equal(uint32(1), s.breaker.Counts().Failures)
+	s.events.AssertCalled(s.T(), "OnHookPanic", hookClassifier, "classify boom")
+}
+
 func (s *TCPSuite) TestRegistryErrorFailsDial() {
 	reg := registry.New(func(string) breaker.Config { return breaker.Config{OpenDuration: -1} })
 	d, err := NewTCPDialer(s.next, WithRegistry(reg))
