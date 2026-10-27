@@ -48,7 +48,10 @@ type settings struct {
 	httpClassifier HTTPClassifier
 	grpcKey        GRPCKeyFunc
 	grpcClassifier GRPCClassifier
+	tcpKey         TCPKeyFunc
+	tcpClassifier  TCPClassifier
 	grpcRejectCode codes.Code
+	tcpTrackIO     bool
 }
 
 // WithBreaker protects every call with one breaker.
