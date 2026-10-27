@@ -430,3 +430,24 @@ func (s *BreakerSuite) TestOpenToHalfOpenCAS() {
 	s.Equal(1, probes)
 	s.events.AssertNumberOfCalls(s.T(), "OnStateChange", 2)
 }
+
+func (s *BreakerSuite) TestStaleWaiterDoesNotSkipBackoff() {
+	b := s.mustNew(s.config())
+	s.trip(b)
+	s.clock.advance(testOpenDuration)
+	now := s.clock.Now()
+	staleEpoch, _ := b.state()
+	p, err := b.Allow()
+	s.Require().NoError(err)
+	b.Record(p, OutcomeFailure, 0)
+	s.Require().Equal(StateOpen, b.State())
+	expected := b.Snapshot()
+
+	actual, err := b.toHalfOpen(staleEpoch, now, ReasonTimeout)
+
+	s.Require().ErrorIs(err, ErrOpen)
+	s.False(actual.IsProbe())
+	s.Equal(StateOpen, b.State())
+	s.Equal(expected.Epoch, b.Snapshot().Epoch)
+	s.Equal(expected.Attempt, b.Snapshot().Attempt)
+}
