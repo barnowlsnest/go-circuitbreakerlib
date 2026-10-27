@@ -66,6 +66,11 @@ func (b *Breaker) Name() string { return b.cfg.Name }
 // HookPanics returns how many Events hooks have panicked.
 func (b *Breaker) HookPanics() uint64 { return b.hookPanics.Load() }
 
+// ReportHookPanic reports a panic recovered from a user hook that runs
+// outside the breaker, such as an adapter classifier, through
+// Events.OnHookPanic. A panic in OnHookPanic is counted in HookPanics.
+func (b *Breaker) ReportHookPanic(name string, recovered any) { b.fireHookPanic(name, recovered) }
+
 func (b *Breaker) rel(t time.Time) int64 { return t.Sub(b.base).Nanoseconds() }
 
 func (b *Breaker) state() (uint64, State) { return unpack(b.packed.Load()) }

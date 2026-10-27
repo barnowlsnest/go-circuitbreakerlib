@@ -365,6 +365,33 @@ func (s *BreakerSuite) TestHookPanicSwallowed() {
 	s.Equal(uint64(1), b.HookPanics())
 }
 
+func (s *BreakerSuite) TestReportHookPanic() {
+	const name = "adapter-classifier"
+	tests := []struct {
+		name          string
+		hookPanics    bool
+		expectedCount uint64
+	}{
+		{name: "fires OnHookPanic", expectedCount: 0},
+		{name: "counts a panicking OnHookPanic", hookPanics: true, expectedCount: 1},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			events := &MockEvents{}
+			call := events.On("OnHookPanic", name, "classify boom").Once()
+			if tt.hookPanics {
+				call.Panic("hook boom")
+			}
+			cfg := s.config()
+			cfg.Events = events
+			b := s.mustNew(cfg)
+			s.NotPanics(func() { b.ReportHookPanic(name, "classify boom") })
+			s.Equal(tt.expectedCount, b.HookPanics())
+			events.AssertExpectations(s.T())
+		})
+	}
+}
+
 func (s *BreakerSuite) TestLazyStateView() {
 	b := s.mustNew(s.config())
 	s.trip(b)
