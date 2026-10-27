@@ -12,6 +12,7 @@ const (
 	stateMask  = 1<<stateBits - 1
 	firstEpoch = 1
 
+	hookBackoff     = "backoff"
 	hookPolicy      = "policy"
 	hookReopenEarly = "reopen-early"
 	hookClassifier  = "classifier"
@@ -181,8 +182,11 @@ func (b *Breaker) admitProbe(now time.Time) (Permit, error) {
 		return b.Allow()
 	}
 	if b.probeExpired(now) {
-		ev := b.open(now, ReasonProbeTimeout, b.attempt+1)
+		ev, bp := b.open(now, ReasonProbeTimeout, b.attempt+1)
 		b.mu.Unlock()
+		if bp != nil {
+			b.fireHookPanic(hookBackoff, bp)
+		}
 		b.fireStateChange(ev)
 		b.reject(now, b.openRejected)
 		return Permit{}, b.openRejected
@@ -240,7 +244,7 @@ func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration) {
 	ev, changed, panics := b.evaluate(now, s, outcome)
 	b.mu.Unlock()
 	for _, hp := range panics {
-		b.fireHookPanic(hookPolicy, hp)
+		b.fireHookPanic(hp.name, hp.recovered)
 	}
 	b.fireCall(CallEvent{At: now, Name: b.cfg.Name, Elapsed: elapsed, State: s, Outcome: outcome, Slow: slow})
 	if changed {
@@ -248,8 +252,14 @@ func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration) {
 	}
 }
 
+// hookPanic is a panic recovered under the lock, fired after unlock.
+type hookPanic struct {
+	recovered any
+	name      string
+}
+
 // evaluate applies the state machine after a recorded outcome, under the lock.
-func (b *Breaker) evaluate(now time.Time, s State, outcome Outcome) (ev StateChangeEvent, changed bool, panics []any) {
+func (b *Breaker) evaluate(now time.Time, s State, outcome Outcome) (ev StateChangeEvent, changed bool, panics []hookPanic) {
 	switch s {
 	case StateClosed:
 		if b.forced.Load() {
@@ -259,10 +269,10 @@ func (b *Breaker) evaluate(now time.Time, s State, outcome Outcome) (ev StateCha
 		if p == nil {
 			return ev, false, panics
 		}
-		return b.open(now, Reason(p.Name()), 0), true, panics
+		return b.openWith(now, Reason(p.Name()), 0, panics)
 	case StateHalfOpen:
 		if outcome == OutcomeFailure {
-			return b.open(now, ReasonHalfOpenFailure, b.attempt+1), true, nil
+			return b.openWith(now, ReasonHalfOpenFailure, b.attempt+1, nil)
 		}
 		b.probeSuccesses++
 		if b.probeSuccesses < b.cfg.HalfOpenSuccesses {
@@ -270,7 +280,7 @@ func (b *Breaker) evaluate(now time.Time, s State, outcome Outcome) (ev StateCha
 		}
 		p, panics := b.tripped(now)
 		if p != nil {
-			return b.open(now, Reason(p.Name()), b.attempt+1), true, panics
+			return b.openWith(now, Reason(p.Name()), b.attempt+1, panics)
 		}
 		return b.close(now, ReasonHalfOpenSuccess), true, panics
 	default:
@@ -278,12 +288,21 @@ func (b *Breaker) evaluate(now time.Time, s State, outcome Outcome) (ev StateCha
 	}
 }
 
+// openWith enters Open for evaluate, appending a Backoff panic to panics.
+func (b *Breaker) openWith(now time.Time, reason Reason, attempt int, panics []hookPanic) (StateChangeEvent, bool, []hookPanic) {
+	ev, bp := b.open(now, reason, attempt)
+	if bp != nil {
+		panics = append(panics, hookPanic{name: hookBackoff, recovered: bp})
+	}
+	return ev, true, panics
+}
+
 // tripped returns the first policy that trips, running each under recover.
-func (b *Breaker) tripped(now time.Time) (tripped Policy, panics []any) {
+func (b *Breaker) tripped(now time.Time) (tripped Policy, panics []hookPanic) {
 	counts := b.win.counts(now)
 	for _, p := range b.cfg.Policies {
 		if trip, r := shouldTrip(p, counts); r != nil {
-			panics = append(panics, r)
+			panics = append(panics, hookPanic{name: hookPolicy, recovered: r})
 		} else if trip {
 			return p, panics
 		}
@@ -301,22 +320,25 @@ func shouldTrip(p Policy, c Counts) (trip bool, recovered any) {
 	return p.ShouldTrip(c), nil
 }
 
-// open enters Open under the lock with the given attempt number.
-func (b *Breaker) open(now time.Time, reason Reason, attempt int) StateChangeEvent {
+// open enters Open under the lock with the given attempt number. It returns
+// the value recovered from a panicking Backoff, for the caller to report
+// after unlock.
+func (b *Breaker) open(now time.Time, reason Reason, attempt int) (ev StateChangeEvent, backoffPanic any) {
 	b.attempt = attempt
 	b.openedAt = now
-	b.reopenAt.Store(b.rel(now.Add(b.delay(attempt))))
+	d, backoffPanic := b.delay(attempt)
+	b.reopenAt.Store(b.rel(now.Add(d)))
 	b.clearProbes()
-	return b.transition(StateOpen, reason, now)
+	return b.transition(StateOpen, reason, now), backoffPanic
 }
 
-func (b *Breaker) delay(attempt int) (d time.Duration) {
+func (b *Breaker) delay(attempt int) (d time.Duration, recovered any) {
 	defer func() {
 		if r := recover(); r != nil {
-			d = b.cfg.OpenDuration
+			d, recovered = b.cfg.OpenDuration, r
 		}
 	}()
-	return b.cfg.Backoff.Delay(attempt)
+	return b.cfg.Backoff.Delay(attempt), nil
 }
 
 // close enters Closed under the lock.

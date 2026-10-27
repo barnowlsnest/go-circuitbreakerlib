@@ -8,7 +8,9 @@ import (
 
 // Backoff returns how long a breaker stays Open on its attempt-th
 // consecutive trip (attempt is 0 on the first). The signature matches
-// go-asynctasklib's retry.Strategy, so those strategies satisfy it.
+// go-asynctasklib's retry.Strategy, so those strategies satisfy it. A
+// panicking Delay falls back to Config.OpenDuration and is reported through
+// Events.OnHookPanic as "backoff".
 type Backoff interface {
 	Delay(attempt int) time.Duration
 }
