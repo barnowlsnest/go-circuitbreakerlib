@@ -86,7 +86,8 @@ Every method taking a `ctx` honors it. Classifiers receive the caller's
 
 No breaker owns a goroutine or timer. State and epoch are one packed
 atomic. A goroutine never holds two breaker locks; hooks fire after
-unlock. `Allow` in Closed and every rejection path are lock-free.
+unlock. `Allow` in Closed and the Open rejection path are lock-free;
+HalfOpen admission takes the mutex.
 
 ### Comments
 
