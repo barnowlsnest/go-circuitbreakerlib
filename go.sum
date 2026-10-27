@@ -1,7 +1,7 @@
 github.com/barnowlsnest/go-datalib/v5 v5.4.0 h1:SPXFJMxKBOFubxrGxA/1AzBGVe7QaUH5znWArresTuU=
 github.com/barnowlsnest/go-datalib/v5 v5.4.0/go.mod h1:LTEr7AQzBS63HkIod96Du14wppIrqn3vY5tCSnLMWTg=
-github.com/barnowlsnest/go-logslib/v2 v2.3.1-0.20261026225052-1a9cb8faff5b h1:b/2zJG98uh0SOmUrwGd4b4lAg8U66j94PLWOEmoWIP8=
-github.com/barnowlsnest/go-logslib/v2 v2.3.1-0.20261026225052-1a9cb8faff5b/go.mod h1:vVIV3C1DK34moPOKmsVSAUsXd1lNC8JYmlrd350rawQ=
+github.com/barnowlsnest/go-logslib/v2 v2.4.0 h1:QV6w/FEOsBM3ebtSsOfaM9Gd5yWwjh7g5+jXVhUiDI4=
+github.com/barnowlsnest/go-logslib/v2 v2.4.0/go.mod h1:vVIV3C1DK34moPOKmsVSAUsXd1lNC8JYmlrd350rawQ=
 github.com/golang/protobuf v1.5.4 h1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=
 github.com/golang/protobuf v1.5.4/go.mod h1:lnTiLA8Wa4RWRcIUkrtSVa5nRhsEGBg48fD6rSs7xps=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
