@@ -1,7 +1,5 @@
 # go-circuitbreakerlib — Design
 
-Date: 2026-10-26 (revision 4, after three external review rounds)
-Module: `github.com/barnowlsnest/go-circuitbreakerlib`
 Go: 1.27
 
 ## Intent
