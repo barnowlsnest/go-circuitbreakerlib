@@ -1,7 +1,7 @@
 github.com/barnowlsnest/go-datalib/v5 v5.4.0 h1:SPXFJMxKBOFubxrGxA/1AzBGVe7QaUH5znWArresTuU=
 github.com/barnowlsnest/go-datalib/v5 v5.4.0/go.mod h1:LTEr7AQzBS63HkIod96Du14wppIrqn3vY5tCSnLMWTg=
-github.com/barnowlsnest/go-logslib/v2 v2.3.1-0.20261026225052-1a9cb8faff5b h1:b/2zJG98uh0SOmUrwGd4b4lAg8U66j94PLWOEmoWIP8=
-github.com/barnowlsnest/go-logslib/v2 v2.3.1-0.20261026225052-1a9cb8faff5b/go.mod h1:vVIV3C1DK34moPOKmsVSAUsXd1lNC8JYmlrd350rawQ=
+github.com/barnowlsnest/go-logslib/v2 v2.4.0 h1:QV6w/FEOsBM3ebtSsOfaM9Gd5yWwjh7g5+jXVhUiDI4=
+github.com/barnowlsnest/go-logslib/v2 v2.4.0/go.mod h1:vVIV3C1DK34moPOKmsVSAUsXd1lNC8JYmlrd350rawQ=
 github.com/stretchr/objx v0.5.3 h1:jmXUvGomnU1o3W/V5h2VEradbpJDwGrzugQQvL0POH4=
 github.com/stretchr/objx v0.5.3/go.mod h1:rDQraq+vQZU7Fde9LOZLr8Tax6zZvy4kuNKF+QYS+U0=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
