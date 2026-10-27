@@ -547,6 +547,7 @@ func (b *Breaker) State() State        // lazy read-only view
 func (b *Breaker) Counts() Counts      // lazy read-only view
 func (b *Breaker) Snapshot() Snapshot  // one consistent read of everything below
 func (b *Breaker) HookPanics() uint64
+func (b *Breaker) ReportHookPanic(name string, recovered any) // adapter classifiers report panics here
 func (b *Breaker) ForceOpen()
 func (b *Breaker) ForceClose()
 func (b *Breaker) Reset()
@@ -600,7 +601,7 @@ type Events interface {
     OnStateChange(ev StateChangeEvent)
     OnCall(ev CallEvent)                     // every recorded, non-stale Success or Failure; never Ignored
     OnReject(ev RejectEvent)                 // every rejection
-    OnHookPanic(name string, recovered any)  // a Classifier or Policy panicked
+    OnHookPanic(name string, recovered any)  // a Classifier or Policy panicked, or ReportHookPanic was called
 }
 
 type StateChangeEvent struct {
