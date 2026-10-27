@@ -2,6 +2,8 @@ module github.com/barnowlsnest/go-circuitbreakerlib
 
 go 1.27
 
+toolchain go1.27.3
+
 require (
 	github.com/barnowlsnest/go-datalib/v5 v5.4.0
 	github.com/barnowlsnest/go-logslib/v2 v2.4.0
