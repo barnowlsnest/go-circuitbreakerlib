@@ -1,5 +1,3 @@
-github.com/barnowlsnest/go-datalib/v5 v5.4.0 h1:SPXFJMxKBOFubxrGxA/1AzBGVe7QaUH5znWArresTuU=
-github.com/barnowlsnest/go-datalib/v5 v5.4.0/go.mod h1:LTEr7AQzBS63HkIod96Du14wppIrqn3vY5tCSnLMWTg=
 github.com/barnowlsnest/go-logslib/v2 v2.4.0 h1:QV6w/FEOsBM3ebtSsOfaM9Gd5yWwjh7g5+jXVhUiDI4=
 github.com/barnowlsnest/go-logslib/v2 v2.4.0/go.mod h1:vVIV3C1DK34moPOKmsVSAUsXd1lNC8JYmlrd350rawQ=
 github.com/stretchr/objx v0.5.3 h1:jmXUvGomnU1o3W/V5h2VEradbpJDwGrzugQQvL0POH4=
@@ -10,9 +8,5 @@ go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.yaml.in/yaml/v3 v3.0.5 h1:N6y/pJk8buWs9NY5ERU2HSMfm+IuD/OtfdAnq6kESPw=
 go.yaml.in/yaml/v3 v3.0.5/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
-golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba h1:Ck8QetSgk912qxWLMCKxd0in+aiyBQyDSMae6e/xmpU=
-golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba/go.mod h1:50RgIsmK7OwqzTTeqcSXQW8SswW0o8fRcDxmqGluJ8E=
-golang.org/x/sync v0.23.0 h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk=
-golang.org/x/sync v0.23.0/go.mod h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
 golang.org/x/time v0.16.0 h1:vMb6ptszcQMkcwiRTAuNNU50gom6++Q/6gY2hDM6VDE=
 golang.org/x/time v0.16.0/go.mod h1:rVKOqvZeKvrDKTQiAHJ7wmwP0RzleSphoEA9RcdLA0s=

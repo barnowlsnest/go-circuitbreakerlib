@@ -3,7 +3,6 @@ module github.com/barnowlsnest/go-circuitbreakerlib
 go 1.27
 
 require (
-	github.com/barnowlsnest/go-datalib/v5 v5.4.0
 	github.com/barnowlsnest/go-logslib/v2 v2.4.0
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/goleak v1.3.0
