@@ -352,17 +352,64 @@ func (s *BreakerSuite) TestPolicyPanicCountsFailureAndFiresHook() {
 	s.events.AssertCalled(s.T(), "OnHookPanic", "policy", "policy boom")
 }
 
-func (s *BreakerSuite) TestHookPanicSwallowed() {
-	events := &MockEvents{}
-	events.On("OnCall", mock.Anything).Panic("hook boom")
-	events.On("OnStateChange", mock.Anything).Maybe()
-	cfg := s.config()
-	cfg.Events = events
-	b := s.mustNew(cfg)
-	p, err := b.Allow()
-	s.Require().NoError(err)
-	s.NotPanics(func() { b.Record(p, OutcomeSuccess, 0) })
-	s.Equal(uint64(1), b.HookPanics())
+func (s *BreakerSuite) TestHookPanicSwallowedAndReported() {
+	tests := []struct {
+		name          string
+		reportPanics  bool
+		expectedCount uint64
+	}{
+		{name: "reported through OnHookPanic", expectedCount: 1},
+		{name: "panicking OnHookPanic is only counted", reportPanics: true, expectedCount: 2},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			events := &MockEvents{}
+			events.On("OnCall", mock.Anything).Panic("hook boom").Once()
+			report := events.On("OnHookPanic", "on-call", "hook boom").Once()
+			if tt.reportPanics {
+				report.Panic("report boom")
+			}
+			cfg := s.config()
+			cfg.Events = events
+			b := s.mustNew(cfg)
+			p, err := b.Allow()
+			s.Require().NoError(err)
+			s.NotPanics(func() { b.Record(p, OutcomeSuccess, 0) })
+			s.Equal(tt.expectedCount, b.HookPanics())
+			events.AssertExpectations(s.T())
+		})
+	}
+}
+
+func (s *BreakerSuite) TestEveryHookPanicReportedByName() {
+	tests := []struct {
+		trigger      func(*Breaker)
+		name         string
+		method       string
+		expectedHook string
+	}{
+		{name: "OnStateChange", method: "OnStateChange", expectedHook: "on-state-change", trigger: func(b *Breaker) { b.ForceOpen() }},
+		{name: "OnReject", method: "OnReject", expectedHook: "on-reject", trigger: func(b *Breaker) {
+			b.ForceOpen()
+			p, err := b.Allow()
+			s.ErrorIs(err, ErrOpen)
+			s.False(p.IsProbe())
+		}},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			events := &MockEvents{}
+			events.On(tt.method, mock.Anything).Panic("hook boom").Once()
+			events.On("OnStateChange", mock.Anything).Maybe()
+			events.On("OnHookPanic", tt.expectedHook, "hook boom").Once()
+			cfg := s.config()
+			cfg.Events = events
+			b := s.mustNew(cfg)
+			s.NotPanics(func() { tt.trigger(b) })
+			s.Equal(uint64(1), b.HookPanics())
+			events.AssertExpectations(s.T())
+		})
+	}
 }
 
 func (s *BreakerSuite) TestReportHookPanic() {

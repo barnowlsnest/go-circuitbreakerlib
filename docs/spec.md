@@ -129,7 +129,8 @@ test.
 - **Mechanism:** Every `Events` method, `Classifier`, and `Policy.ShouldTrip`
   call runs under a `recover` in a pre-built method value (no closure
   allocation). Classifier/policy panics count as `OutcomeFailure` and fire
-  `OnHookPanic`; hook panics increment `HookPanics()`.
+  `OnHookPanic`; hook panics increment `HookPanics()` and fire `OnHookPanic`
+  (a panic in `OnHookPanic` itself is only counted).
 - **Test:** mock hook/classifier/policy that panics; assert the caller sees no
   panic, the outcome is failure, the counter is incremented, and the 0-alloc
   benchmark still passes.
@@ -648,8 +649,10 @@ synchronously under the logger's mutex on whichever caller fills the
 buffer; there is no background flusher). Rejection and failure lines are
 bounded by the limiters, but Debug-level successes and state changes are
 not. The README recommends `BufferSize > 0` and a non-blocking sink.
-Each hook call runs under `recover`; a panic in `Events` is swallowed and
-counted in `HookPanics()`.
+Each hook call runs under `recover`; a panic in `Events` is counted in
+`HookPanics()` and reported through `OnHookPanic` under the hook's name
+(`on-state-change`, `on-call`, `on-reject`). A panic in `OnHookPanic` itself
+is only counted, so reporting never recurses.
 
 ## `pkg/hooks`
 
