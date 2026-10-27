@@ -18,8 +18,11 @@ type Events interface {
 	OnCall(ev CallEvent)
 	// OnReject fires for every rejected Allow.
 	OnReject(ev RejectEvent)
-	// OnHookPanic fires when a Classifier, Policy, or ReopenEarly panicked,
-	// or when a panic is reported through Breaker.ReportHookPanic.
+	// OnHookPanic fires when a user hook panicked; name says which:
+	// "classifier", "policy", "reopen-early", "backoff", or the Events hook
+	// ("on-state-change", "on-call", "on-reject"). Breaker.ReportHookPanic
+	// fires it for hooks run outside the breaker, such as adapter
+	// classifiers. A panic in OnHookPanic itself is only counted.
 	OnHookPanic(name string, recovered any)
 }
 

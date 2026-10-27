@@ -604,7 +604,7 @@ type Events interface {
     OnStateChange(ev StateChangeEvent)
     OnCall(ev CallEvent)                     // every recorded, non-stale Success or Failure; never Ignored
     OnReject(ev RejectEvent)                 // every rejection
-    OnHookPanic(name string, recovered any)  // a Classifier or Policy panicked, or ReportHookPanic was called
+    OnHookPanic(name string, recovered any)  // a Classifier, Policy, ReopenEarly, Backoff, or Events hook panicked, or ReportHookPanic was called
 }
 
 type StateChangeEvent struct {
