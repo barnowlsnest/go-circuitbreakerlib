@@ -3,10 +3,16 @@ package composite
 import (
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
+
+// topology serializes attach and detach across every composite, so the
+// cycle and depth checks of two concurrent attaches cannot each pass
+// against the tree as it was before the other finished.
+var topology sync.Mutex
 
 // Child is one member of a composite: a *breaker.Breaker leaf or a nested
 // *Composite. State is the lazy read-only view used by the open-children
@@ -52,6 +58,8 @@ func (c *Composite) AttachChild(child Child) error {
 	if isNil(child) {
 		return ErrNilChild
 	}
+	topology.Lock()
+	defer topology.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	name := child.Name()
@@ -86,6 +94,8 @@ func (c *Composite) AttachChild(child Child) error {
 // RemoveChild detaches the child named id and reports whether it was
 // present. A removed *Composite can be attached elsewhere afterwards.
 func (c *Composite) RemoveChild(id string) bool {
+	topology.Lock()
+	defer topology.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	current := *c.children.Load()
