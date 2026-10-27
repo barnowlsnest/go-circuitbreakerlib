@@ -98,8 +98,8 @@ func WithClock(fn func() time.Time) Option {
 }
 
 // WithRand sets the generator that picks eviction samples. The registry
-// only uses it under its own lock. The default is seeded from the clock at
-// package init.
+// only uses it under its own lock. The default is a generator of its own,
+// seeded from the clock when the registry is created.
 func WithRand(r *rand.Rand) Option {
 	return func(o *options) {
 		if r == nil {

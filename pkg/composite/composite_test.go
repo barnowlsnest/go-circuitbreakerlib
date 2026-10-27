@@ -2,6 +2,7 @@ package composite
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ const (
 	testLowFailures   = 10
 	testNeverTrip     = 1 << 30
 	testHalfOpenCalls = 1
+	testAttachRounds  = 500
 )
 
 // baseSuite holds the fixture shared by the composite suites. It has no test
@@ -439,4 +441,22 @@ func (s *CompositeSuite) TestForceAndReset() {
 	s.Equal(breaker.StateClosed, c.State())
 	c.Reset()
 	s.Equal(breaker.StateClosed, c.State())
+}
+
+func (s *CompositeSuite) TestConcurrentCrossAttachNeverCycles() {
+	for range testAttachRounds {
+		a, err := New(s.config("a", nil))
+		s.Require().NoError(err)
+		b, err := New(s.config("b", nil))
+		s.Require().NoError(err)
+		var (
+			wg    sync.WaitGroup
+			errAB error
+			errBA error
+		)
+		wg.Go(func() { errAB = a.AttachChild(b) })
+		wg.Go(func() { errBA = b.AttachChild(a) })
+		wg.Wait()
+		s.Require().False(errAB == nil && errBA == nil, "both attaches succeeded: cycle")
+	}
 }
