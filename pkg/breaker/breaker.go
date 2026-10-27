@@ -119,10 +119,10 @@ func (b *Breaker) Allow() (Permit, error) {
 	case StateOpen:
 		if !b.forced.Load() {
 			if b.cfg.ReopenEarly != nil && b.reopenEarly() {
-				return b.toHalfOpen(now, ReasonEarlyHalfOpen)
+				return b.toHalfOpen(epoch, now, ReasonEarlyHalfOpen)
 			}
 			if b.backoffDue(now) {
-				return b.toHalfOpen(now, ReasonTimeout)
+				return b.toHalfOpen(epoch, now, ReasonTimeout)
 			}
 		}
 		b.reject(now, b.openRejected)
@@ -143,10 +143,12 @@ func (b *Breaker) reopenEarly() (ok bool) {
 }
 
 // toHalfOpen performs Open to HalfOpen under the lock. Exactly one caller
-// wins; the rest observe the new state and compete for probe slots.
-func (b *Breaker) toHalfOpen(now time.Time, reason Reason) (Permit, error) {
+// wins; the rest observe the new state and compete for probe slots. A caller
+// whose observed epoch is no longer current re-evaluates from scratch, so a
+// waiter never skips a backoff that started after it looked.
+func (b *Breaker) toHalfOpen(epoch uint64, now time.Time, reason Reason) (Permit, error) {
 	b.mu.Lock()
-	if _, s := b.state(); s != StateOpen || b.forced.Load() {
+	if e, s := b.state(); e != epoch || s != StateOpen || b.forced.Load() {
 		b.mu.Unlock()
 		return b.Allow()
 	}
