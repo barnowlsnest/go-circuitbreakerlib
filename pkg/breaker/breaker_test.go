@@ -206,6 +206,47 @@ func (s *BreakerSuite) TestHalfOpenFailureReopens() {
 	backoff.AssertExpectations(s.T())
 }
 
+func (s *BreakerSuite) TestBackoffPanicFallsBackAndIsReported() {
+	tests := []struct {
+		open         func(*Breaker)
+		name         string
+		panicAttempt int
+	}{
+		{name: "closed trip", panicAttempt: 0, open: func(b *Breaker) { s.trip(b) }},
+		{name: "half-open failure", panicAttempt: 1, open: func(b *Breaker) {
+			b.Record(s.halfOpen(b), OutcomeFailure, 0)
+		}},
+		{name: "probe timeout", panicAttempt: 1, open: func(b *Breaker) {
+			p := s.halfOpen(b)
+			s.True(p.IsProbe())
+			s.clock.advance(testProbeTimeout + time.Millisecond)
+			_, err := b.Allow()
+			s.ErrorIs(err, ErrOpen)
+		}},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.events = newNoopMockEvents()
+			backoff := &MockBackoff{}
+			if tt.panicAttempt > 0 {
+				backoff.On("Delay", 0).Return(testOpenDuration).Once()
+			}
+			backoff.On("Delay", tt.panicAttempt).Panic("backoff boom").Once()
+			cfg := s.config()
+			cfg.Backoff = backoff
+			b := s.mustNew(cfg)
+			s.NotPanics(func() { tt.open(b) })
+			snap := b.Snapshot()
+			s.Equal(StateOpen, snap.State)
+			s.Equal(tt.panicAttempt, snap.Attempt)
+			s.Equal(snap.OpenedAt.Add(testOpenDuration), snap.ReopenAt)
+			s.events.AssertCalled(s.T(), "OnHookPanic", "backoff", "backoff boom")
+			s.Equal(uint64(0), b.HookPanics())
+			backoff.AssertExpectations(s.T())
+		})
+	}
+}
+
 func (s *BreakerSuite) TestStalePermitDiscarded() {
 	b := s.mustNew(s.config())
 	stale, err := b.Allow()
