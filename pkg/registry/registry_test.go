@@ -2,6 +2,7 @@ package registry
 
 import (
 	"math/rand/v2"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,8 @@ const (
 	testSamples    = 3
 	testSeed1      = 11
 	testSeed2      = 22
+	testRaceKeys   = 500
+	testRaceMax    = 20
 )
 
 type RegistrySuite struct {
@@ -283,12 +286,13 @@ func (s *RegistrySuite) TestRangeStops() {
 }
 
 func (s *RegistrySuite) TestAccessGranularity() {
+	start := s.clock.Now()
 	r := s.newRegistry(WithAccessGranularity(time.Second))
 	s.factory.On("Make", "a").Return(config()).Once()
 	_, err := r.Get("a")
 	s.Require().NoError(err)
 	created := r.lastAccess("a")
-	s.Equal(s.clock.Now().UnixNano(), created)
+	s.Equal(s.clock.Now().Sub(start).Nanoseconds(), created)
 
 	s.clock.advance(500 * time.Millisecond)
 	_, err = r.Get("a")
@@ -300,5 +304,23 @@ func (s *RegistrySuite) TestAccessGranularity() {
 	_, err = r.Get("a")
 	s.Require().NoError(err)
 	actual = r.lastAccess("a")
-	s.Equal(s.clock.Now().UnixNano(), actual, "access past the window is stored")
+	s.Equal(s.clock.Now().Sub(start).Nanoseconds(), actual, "access past the window is stored")
+}
+
+func (s *RegistrySuite) TestDefaultRandIsPerRegistry() {
+	s.factory.On("Make", mock.Anything).Return(config())
+	s.onEvict.On("Evict", mock.Anything, mock.Anything).Maybe()
+	var wg sync.WaitGroup
+	for range 2 {
+		r := s.newRegistry(WithMaxEntries(testRaceMax))
+		wg.Go(func() {
+			for i := range testRaceKeys {
+				_, err := r.Get(strconv.Itoa(i))
+				if err != nil {
+					s.T().Errorf("Get: %v", err)
+				}
+			}
+		})
+	}
+	wg.Wait()
 }

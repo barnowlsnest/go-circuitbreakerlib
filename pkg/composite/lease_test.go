@@ -350,3 +350,37 @@ func (s *LeaseSuite) TestConcurrentPickAndChildChanges() {
 	wg.Wait()
 	s.Equal([]string{"a", "b"}, c.Children())
 }
+
+func (s *LeaseSuite) TestPickNoHealthyHookPanicSwallowed() {
+	c, leaves := s.mustNew(nil, "a")
+	s.forceOpen(leaves["a"])
+	s.events.ExpectedCalls = nil
+	s.events.On("OnStateChange", mock.Anything).Maybe()
+	noHealthy := mock.MatchedBy(func(ev breaker.RejectEvent) bool { return errors.Is(ev.Err, ErrNoHealthyChildren) })
+	s.events.On("OnReject", noHealthy).Run(func(mock.Arguments) { panic("reject boom") }).Once()
+	s.events.On("OnReject", mock.Anything).Maybe()
+	s.events.On("OnHookPanic", hookOnReject, "reject boom").Run(func(mock.Arguments) { panic("hook boom") }).Once()
+	expected := c.HookPanics()
+	var err error
+	s.NotPanics(func() { _, err = c.Pick() })
+	s.ErrorIs(err, ErrNoHealthyChildren)
+	s.Equal(expected+2, c.HookPanics(), "OnReject and OnHookPanic both panicked")
+}
+
+func (s *LeaseSuite) TestExecuteClassifierHookPanicSwallowed() {
+	cfg := s.config(testName, nil)
+	cfg.Parent.Classifier = func(context.Context, error) breaker.Outcome { panic("classify boom") }
+	c, err := New(cfg)
+	s.Require().NoError(err)
+	_, err = c.AddChild("a")
+	s.Require().NoError(err)
+	s.fn.On("Call", mock.Anything, "a").Return(nil).Once()
+	s.events.ExpectedCalls = nil
+	s.events.On("OnHookPanic", hookClassifier, "classify boom").Run(func(mock.Arguments) { panic("hook boom") }).Once()
+	s.events.On("OnCall", mock.Anything).Maybe()
+	s.events.On("OnStateChange", mock.Anything).Maybe()
+	s.NotPanics(func() { err = c.Execute(context.Background(), s.fn.Call) })
+	s.NoError(err)
+	s.Equal(uint32(1), c.Counts().Failures)
+	s.Equal(uint64(1), c.HookPanics())
+}
