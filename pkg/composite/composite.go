@@ -52,7 +52,8 @@ type Composite struct {
 	noHealthy     [breaker.StateHalfOpen + 1]*breaker.RejectedError
 	mu            sync.Mutex
 	rr            atomic.Int64
-	scanInterval  int64
+	hookPanics    atomic.Uint64
+	scanInterval  time.Duration
 }
 
 // New builds a composite with no children. It returns ErrInvalidConfig when
@@ -71,7 +72,7 @@ func New(cfg Config) (*Composite, error) {
 		template:     cfg.ChildTemplate,
 		trip:         cfg.Trip,
 		events:       cfg.Events,
-		scanInterval: int64(cfg.ScanInterval),
+		scanInterval: cfg.ScanInterval,
 	}
 	if c.trip == nil {
 		c.trip = AllOf(OpenChildrenRatio(defaultTripRatio), AggregateFailureRate(defaultTripRate, defaultTripMinCalls))
@@ -80,7 +81,7 @@ func New(cfg Config) (*Composite, error) {
 		c.events = breaker.NewNoopEvents()
 	}
 	if c.scanInterval == 0 {
-		c.scanInterval = int64(DefaultScanInterval)
+		c.scanInterval = DefaultScanInterval
 	}
 	parentCfg := cfg.Parent
 	if cfg.Name != "" {
@@ -150,8 +151,9 @@ func (c *Composite) ForceClose() { c.parent.ForceClose() }
 // Reset returns the parent to Closed under normal control.
 func (c *Composite) Reset() { c.parent.Reset() }
 
-// HookPanics returns the parent's hook panic count.
-func (c *Composite) HookPanics() uint64 { return c.parent.HookPanics() }
+// HookPanics returns how many Events hooks have panicked: the parent
+// breaker's own count plus hooks the composite fires itself.
+func (c *Composite) HookPanics() uint64 { return c.parent.HookPanics() + c.hookPanics.Load() }
 
 // reopenEarly runs lock-free on every parent Allow while Open. It reopens
 // when the trip condition no longer holds against the frozen aggregate.
@@ -213,10 +215,25 @@ func (o *parentObserver) OnHookPanic(name string, recovered any) {
 // rejectNoHealthy fires OnReject on the parent's events for a Pick that
 // found no admitting child, under recover like every breaker hook.
 func (c *Composite) rejectNoHealthy(now time.Time, state breaker.State) {
+	defer c.recoverHook(c.parentEvents, hookOnReject)
+	c.parentEvents.OnReject(breaker.RejectEvent{At: now, Err: ErrNoHealthyChildren, Name: c.parent.Name(), State: state})
+}
+
+// recoverHook is deferred around a hook the composite fires itself. It
+// counts the panic and reports it through OnHookPanic, which may panic too
+// without escaping.
+func (c *Composite) recoverHook(events breaker.Events, name string) {
+	if r := recover(); r != nil {
+		c.hookPanics.Add(1)
+		c.fireHookPanic(events, name, r)
+	}
+}
+
+func (c *Composite) fireHookPanic(events breaker.Events, name string, recovered any) {
 	defer func() {
 		if r := recover(); r != nil {
-			c.parentEvents.OnHookPanic(hookOnReject, r)
+			c.hookPanics.Add(1)
 		}
 	}()
-	c.parentEvents.OnReject(breaker.RejectEvent{At: now, Err: ErrNoHealthyChildren, Name: c.parent.Name(), State: state})
+	events.OnHookPanic(name, recovered)
 }
