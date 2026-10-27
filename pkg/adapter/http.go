@@ -100,7 +100,7 @@ func (t *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	start := time.Now()
 	resp, err := t.next.RoundTrip(req)
 	elapsed := time.Since(start)
-	b.Record(p, classifyHTTP(t.settings.httpClassifier, req.Context(), resp, err), elapsed)
+	b.Record(p, classifyHTTP(b, t.settings.httpClassifier, req.Context(), resp, err), elapsed)
 	if err != nil && resp != nil {
 		if resp.Body != nil {
 			_ = resp.Body.Close()
@@ -110,11 +110,13 @@ func (t *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-// classifyHTTP runs fn under recover; a panicking classifier is a failure.
-func classifyHTTP(fn HTTPClassifier, ctx context.Context, resp *http.Response, err error) (o breaker.Outcome) {
+// classifyHTTP runs fn under recover; a panicking classifier is a failure
+// reported through b's OnHookPanic.
+func classifyHTTP(b *breaker.Breaker, fn HTTPClassifier, ctx context.Context, resp *http.Response, err error) (o breaker.Outcome) {
 	defer func() {
 		if r := recover(); r != nil {
 			o = breaker.OutcomeFailure
+			b.ReportHookPanic(hookClassifier, r)
 		}
 	}()
 	return fn(ctx, resp, err)

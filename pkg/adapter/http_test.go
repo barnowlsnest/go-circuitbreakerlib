@@ -188,6 +188,7 @@ func (s *HTTPSuite) TestClassifierPanicIsFailure() {
 	s.Require().NoError(err)
 	s.NoError(resp.Body.Close())
 	s.Equal(uint32(1), s.breaker.Counts().Failures)
+	s.events.AssertCalled(s.T(), "OnHookPanic", hookClassifier, "classify boom")
 }
 
 func (s *HTTPSuite) TestRejectedWhenOpen() {

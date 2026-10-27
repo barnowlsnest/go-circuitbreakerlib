@@ -151,7 +151,7 @@ func NewGRPCUnaryInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, error
 		}
 		start := time.Now()
 		err = invoker(ctx, method, req, reply, cc, callOpts...)
-		b.Record(p, classifyGRPC(s.grpcClassifier, ctx, err), time.Since(start))
+		b.Record(p, classifyGRPC(b, s.grpcClassifier, ctx, err), time.Since(start))
 		return err
 	}, nil
 }
@@ -178,16 +178,18 @@ func NewGRPCStreamInterceptor(opts ...Option) (grpc.StreamClientInterceptor, err
 		}
 		start := time.Now()
 		stream, err := streamer(ctx, desc, cc, method, callOpts...)
-		b.Record(p, classifyGRPC(s.grpcClassifier, ctx, err), time.Since(start))
+		b.Record(p, classifyGRPC(b, s.grpcClassifier, ctx, err), time.Since(start))
 		return stream, err
 	}, nil
 }
 
-// classifyGRPC runs fn under recover; a panicking classifier is a failure.
-func classifyGRPC(fn GRPCClassifier, ctx context.Context, err error) (o breaker.Outcome) {
+// classifyGRPC runs fn under recover; a panicking classifier is a failure
+// reported through b's OnHookPanic.
+func classifyGRPC(b *breaker.Breaker, fn GRPCClassifier, ctx context.Context, err error) (o breaker.Outcome) {
 	defer func() {
 		if r := recover(); r != nil {
 			o = breaker.OutcomeFailure
+			b.ReportHookPanic(hookClassifier, r)
 		}
 	}()
 	return fn(ctx, err)
