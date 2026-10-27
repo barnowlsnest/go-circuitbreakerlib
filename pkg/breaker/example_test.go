@@ -1,6 +1,8 @@
 package breaker_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -18,4 +20,28 @@ func ExampleConfig() {
 	}
 	fmt.Println(cfg.Name, cfg.Policies[0].Name(), cfg.Policies[1].Name())
 	// Output: payments failure-rate consecutive-failures
+}
+
+func ExampleBreaker_Execute() {
+	b, err := breaker.New(breaker.Config{Name: "inventory"})
+	if err != nil {
+		panic(err)
+	}
+	err = b.Execute(context.Background(), func(ctx context.Context) error {
+		return errors.New("upstream unavailable")
+	})
+	fmt.Println(err, b.State())
+	// Output: upstream unavailable closed
+}
+
+func ExampleDo() {
+	b, err := breaker.New(breaker.Config{Name: "pricing"})
+	if err != nil {
+		panic(err)
+	}
+	price, err := breaker.Do(context.Background(), b, func(ctx context.Context) (int, error) {
+		return 1999, nil
+	})
+	fmt.Println(price, err)
+	// Output: 1999 <nil>
 }
