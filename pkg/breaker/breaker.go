@@ -18,7 +18,8 @@ const (
 )
 
 // Breaker is a circuit breaker. Construct with New. All methods are safe for
-// concurrent use; Allow in Closed and every rejection path are lock-free.
+// concurrent use; Allow in Closed and the Open rejection path are lock-free,
+// while HalfOpen probe admission takes the breaker's mutex.
 type Breaker struct {
 	openedAt         time.Time
 	base             time.Time

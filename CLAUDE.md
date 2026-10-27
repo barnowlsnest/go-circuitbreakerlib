@@ -10,9 +10,8 @@ application**: there is no `main`, no root package, and no binary to run.
 
 - Module path: `github.com/barnowlsnest/go-circuitbreakerlib`.
 - Go version: **1.27** (`go.mod`). CI installs it via `go-version-file: go.mod`.
-- Design: `docs/superpowers/specs/2026-10-26-circuit-breaker-design.md`.
-  Plan: `docs/superpowers/plans/2026-10-26-circuit-breaker.md`. The spec is
-  the authority when code and comments disagree.
+- Design: `docs/spec.md`. The spec is the authority when code and comments
+  disagree.
 
 ## Layout
 
@@ -86,7 +85,8 @@ Every method taking a `ctx` honors it. Classifiers receive the caller's
 
 No breaker owns a goroutine or timer. State and epoch are one packed
 atomic. A goroutine never holds two breaker locks; hooks fire after
-unlock. `Allow` in Closed and every rejection path are lock-free.
+unlock. `Allow` in Closed and the Open rejection path are lock-free;
+HalfOpen admission takes the mutex.
 
 ### Comments
 
@@ -113,9 +113,9 @@ identifiers stays; ask before changing it.
 
 ## Delivery
 
-Work is delivered as stacked GitHub PRs via `gh`, one per package layer,
-each based on the branch below it. Open a PR as soon as its branch passes
-`task sanity`. See the plan's "Delivery" section for the stack.
+Work is delivered as stacked GitHub PRs managed with `gh stack`, one per
+package layer. Open a PR as soon as its branch passes `task sanity`. Never
+chain PR bases by hand.
 
 ## Dependencies
 
