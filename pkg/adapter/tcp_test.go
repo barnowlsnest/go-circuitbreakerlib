@@ -353,3 +353,25 @@ func (s *TCPSuite) TestCloseForwarded() {
 	s.conn.On("Close").Return(nil).Once()
 	s.NoError(conn.Close())
 }
+
+func (s *TCPSuite) TestTrackedReadDoesNotHoldProbeSlot() {
+	conn := s.tracked()
+	payload := []byte("x")
+	s.conn.On("Write", payload).Return(len(payload), errReset).Once()
+	_, err := conn.Write(payload)
+	s.Require().ErrorIs(err, errReset)
+	s.clock.advance(testOpenDur)
+	s.Require().Equal(breaker.StateHalfOpen, s.breaker.State())
+
+	buf := make([]byte, 1)
+	s.conn.On("Read", buf).Run(func(mock.Arguments) {
+		p, err := s.breaker.Allow()
+		s.NoError(err, "a blocked Read must not occupy the probe slot")
+		s.True(p.IsProbe())
+		s.breaker.Record(p, breaker.OutcomeIgnored, 0)
+	}).Return(1, nil).Once()
+	n, err := conn.Read(buf)
+	s.NoError(err)
+	s.Equal(1, n)
+	s.Equal(breaker.StateHalfOpen, s.breaker.State(), "a Read never counts as a probe success")
+}

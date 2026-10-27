@@ -59,8 +59,9 @@ func WithTCPClassifier(fn TCPClassifier) Option {
 }
 
 // WithTCPTrackIO wraps every dialed conn so each Read and Write asks the
-// breaker first. Off by default, because the wrapper hides *net.TCPConn
-// from TLS and HTTP/2 stacks that type-assert on it.
+// breaker first. Only Writes act as half-open probes; a Read never holds a
+// probe slot. Off by default, because the wrapper hides *net.TCPConn from
+// TLS and HTTP/2 stacks that type-assert on it.
 func WithTCPTrackIO(enabled bool) Option {
 	return Option{proto: protoTCP, apply: func(s *settings) error {
 		s.tcpTrackIO = enabled
