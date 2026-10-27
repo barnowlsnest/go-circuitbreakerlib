@@ -15,6 +15,9 @@ const (
 	hookPolicy      = "policy"
 	hookReopenEarly = "reopen-early"
 	hookClassifier  = "classifier"
+	hookStateChange = "on-state-change"
+	hookCall        = "on-call"
+	hookReject      = "on-reject"
 )
 
 // Breaker is a circuit breaker. Construct with New. All methods are safe for
@@ -391,28 +394,33 @@ func (b *Breaker) reject(now time.Time, re *RejectedError) {
 	b.fireReject(RejectEvent{At: now, Err: re.Err, Name: b.cfg.Name, State: re.State})
 }
 
-func (b *Breaker) recoverHook() {
+func (b *Breaker) recoverHook(name string) {
 	if r := recover(); r != nil {
 		b.hookPanics.Add(1)
+		b.fireHookPanic(name, r)
 	}
 }
 
 func (b *Breaker) fireStateChange(ev StateChangeEvent) {
-	defer b.recoverHook()
+	defer b.recoverHook(hookStateChange)
 	b.cfg.Events.OnStateChange(ev)
 }
 
 func (b *Breaker) fireCall(ev CallEvent) {
-	defer b.recoverHook()
+	defer b.recoverHook(hookCall)
 	b.cfg.Events.OnCall(ev)
 }
 
 func (b *Breaker) fireReject(ev RejectEvent) {
-	defer b.recoverHook()
+	defer b.recoverHook(hookReject)
 	b.cfg.Events.OnReject(ev)
 }
 
 func (b *Breaker) fireHookPanic(name string, recovered any) {
-	defer b.recoverHook()
+	defer func() {
+		if r := recover(); r != nil {
+			b.hookPanics.Add(1)
+		}
+	}()
 	b.cfg.Events.OnHookPanic(name, recovered)
 }

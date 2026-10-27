@@ -6,7 +6,8 @@ import "time"
 // goroutine after the breaker lock is released, so hook latency is request
 // latency: implementations must not block, make network calls, or take
 // locks shared with request handling. Every hook runs under recover; a
-// panic is swallowed and counted in Breaker.HookPanics.
+// panic is counted in Breaker.HookPanics and reported through OnHookPanic,
+// named after the hook. A panic in OnHookPanic itself is only counted.
 //
 // Embed NoopEvents to implement only the hooks you need.
 type Events interface {
