@@ -148,7 +148,9 @@ func (b *Breaker) reopenEarly() (ok bool) {
 // waiter never skips a backoff that started after it looked.
 func (b *Breaker) toHalfOpen(epoch uint64, now time.Time, reason Reason) (Permit, error) {
 	b.mu.Lock()
-	if e, s := b.state(); e != epoch || s != StateOpen || b.forced.Load() {
+	current, s := b.state()
+	stale := current != epoch || s != StateOpen || b.forced.Load()
+	if stale {
 		b.mu.Unlock()
 		return b.Allow()
 	}
