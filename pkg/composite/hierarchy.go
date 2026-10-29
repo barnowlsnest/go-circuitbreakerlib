@@ -56,7 +56,8 @@ func buildComposite(
 	}
 	for _, child := range n.ChildrenIter() {
 		if !child.HasChildren() {
-			if _, err := c.attachLeaf(child.Val(), leafCfg(slices.Concat(path, []string{child.Val()}))); err != nil {
+			lc := leafCfg(slices.Concat(path, []string{child.Val()}))
+			if _, err := c.attachLeaf(child.Val(), &lc); err != nil {
 				return nil, err
 			}
 			continue

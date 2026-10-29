@@ -33,21 +33,20 @@ func (c *Composite) AddChild(id string) (*breaker.Breaker, error) {
 	if c.template == nil {
 		return nil, ErrNoChildTemplate
 	}
-	return c.attachLeaf(id, c.template(id))
+	cfg := c.template(id)
+	return c.attachLeaf(id, &cfg)
 }
 
 // attachLeaf builds a leaf from cfg, defaulting an empty Name to id and nil
 // Events to the composite's, and attaches it.
-//
-//nolint:gocritic // breaker.Config is passed by value like breaker.New.
-func (c *Composite) attachLeaf(id string, cfg breaker.Config) (*breaker.Breaker, error) {
+func (c *Composite) attachLeaf(id string, cfg *breaker.Config) (*breaker.Breaker, error) {
 	if cfg.Name == "" {
 		cfg.Name = id
 	}
 	if cfg.Events == nil {
 		cfg.Events = c.events
 	}
-	b, err := breaker.New(&cfg)
+	b, err := breaker.New(cfg)
 	if err != nil {
 		return nil, err
 	}
