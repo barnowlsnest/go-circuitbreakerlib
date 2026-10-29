@@ -105,7 +105,7 @@ record in a `defer`, so a panicking function records a failure before the
 panic propagates:
 
 ```go
-b, err := breaker.New(breaker.Config{Name: "inventory"})
+b, err := breaker.New(&breaker.Config{Name: "inventory"})
 if err != nil {
 	panic(err)
 }
@@ -117,7 +117,7 @@ fmt.Println(err, b.State())
 ```
 
 ```go
-b, err := breaker.New(breaker.Config{Name: "pricing"})
+b, err := breaker.New(&breaker.Config{Name: "pricing"})
 if err != nil {
 	panic(err)
 }
@@ -234,7 +234,7 @@ events, err := hooks.NewLogEvents(log,
 if err != nil {
 	panic(err)
 }
-b, err := breaker.New(breaker.Config{
+b, err := breaker.New(&breaker.Config{
 	Name:     "payments",
 	Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
 	Events:   events,
@@ -434,7 +434,7 @@ not the body read.
 ### gRPC
 
 ```go
-b, err := breaker.New(breaker.Config{
+b, err := breaker.New(&breaker.Config{
 	Name:         "inventory",
 	Policies:     []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}},
 	OpenDuration: 30 * time.Second,

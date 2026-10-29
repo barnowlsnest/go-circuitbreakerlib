@@ -189,7 +189,8 @@ func (s *CompositeSuite) TestAddChildWithoutTemplate() {
 func (s *CompositeSuite) TestAttachChild() {
 	var nilComposite *Composite
 	var nilBreaker *breaker.Breaker
-	leaf, err := breaker.New(s.template("leaf"))
+	leafCfg := s.template("leaf")
+	leaf, err := breaker.New(&leafCfg)
 	s.Require().NoError(err)
 	tests := []struct {
 		child       Child
@@ -211,7 +212,8 @@ func (s *CompositeSuite) TestAttachChild() {
 }
 
 func (s *CompositeSuite) TestAttachLeafToManyParents() {
-	leaf, err := breaker.New(s.template("shared"))
+	leafCfg := s.template("shared")
+	leaf, err := breaker.New(&leafCfg)
 	s.Require().NoError(err)
 	first, _ := s.mustNew(nil)
 	second, err := New(s.config("second", nil))

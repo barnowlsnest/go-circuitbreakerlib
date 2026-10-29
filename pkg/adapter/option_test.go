@@ -22,7 +22,7 @@ func TestOptionSuite(t *testing.T) {
 }
 
 func (s *OptionSuite) SetupTest() {
-	b, err := breaker.New(breaker.Config{Name: testName})
+	b, err := breaker.New(&breaker.Config{Name: testName})
 	s.Require().NoError(err)
 	s.breaker = b
 	s.registry = testRegistry(s.T())

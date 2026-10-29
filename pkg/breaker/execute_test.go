@@ -55,7 +55,7 @@ func (s *ExecuteSuite) TearDownTest() {
 
 func (s *ExecuteSuite) newBreaker() *Breaker {
 	s.T().Helper()
-	b, err := New(Config{
+	b, err := New(&Config{
 		Name:         testName,
 		Policies:     []Policy{s.policy},
 		OpenDuration: testOpenDuration,

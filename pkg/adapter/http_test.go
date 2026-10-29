@@ -40,7 +40,7 @@ func (s *HTTPSuite) SetupTest() {
 	s.events = newNoopMockEvents()
 	s.next = &MockRoundTripper{}
 	s.body = &MockBody{}
-	b, err := breaker.New(breaker.Config{
+	b, err := breaker.New(&breaker.Config{
 		Name:     testName,
 		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
 		Events:   s.events,

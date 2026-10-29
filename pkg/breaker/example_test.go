@@ -23,7 +23,7 @@ func ExampleConfig() {
 }
 
 func ExampleBreaker_Execute() {
-	b, err := breaker.New(breaker.Config{Name: "inventory"})
+	b, err := breaker.New(&breaker.Config{Name: "inventory"})
 	if err != nil {
 		panic(err)
 	}
@@ -35,7 +35,7 @@ func ExampleBreaker_Execute() {
 }
 
 func ExampleDo() {
-	b, err := breaker.New(breaker.Config{Name: "pricing"})
+	b, err := breaker.New(&breaker.Config{Name: "pricing"})
 	if err != nil {
 		panic(err)
 	}
@@ -65,7 +65,7 @@ func (m *metricsEvents) OnReject(ev breaker.RejectEvent) {
 
 func ExampleEvents() {
 	metrics := &metricsEvents{transitions: map[string]int{}, rejections: map[string]int{}}
-	b, err := breaker.New(breaker.Config{
+	b, err := breaker.New(&breaker.Config{
 		Name:     "search",
 		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
 		Events:   metrics,

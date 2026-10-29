@@ -55,7 +55,7 @@ func (s *TCPSuite) TearDownTest() {
 
 func (s *TCPSuite) newBreaker() *breaker.Breaker {
 	s.T().Helper()
-	b, err := breaker.New(breaker.Config{
+	b, err := breaker.New(&breaker.Config{
 		Name:         testName,
 		Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
 		OpenDuration: testOpenDur,

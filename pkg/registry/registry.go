@@ -163,7 +163,7 @@ func (r *Registry) createLocked(key string) (e, victim *entry, err error) {
 	if cfg.Events == nil {
 		cfg.Events = r.events
 	}
-	b, err := breaker.New(cfg)
+	b, err := breaker.New(&cfg)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -100,7 +100,7 @@ func New(cfg Config) (*Composite, error) {
 	parentCfg.Events = &parentObserver{c: c, next: parentCfg.Events}
 	parentCfg.Policies = []breaker.Policy{tripPolicy{c: c}}
 	parentCfg.ReopenEarly = c.reopenEarly
-	parent, err := breaker.New(parentCfg)
+	parent, err := breaker.New(&parentCfg)
 	if err != nil {
 		return nil, err
 	}

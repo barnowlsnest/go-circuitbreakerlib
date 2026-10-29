@@ -1,6 +1,7 @@
 package breaker
 
 import (
+	"errors"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -37,24 +38,28 @@ type Breaker struct {
 	hookPanics       atomic.Uint64
 	attempt          int
 	mu               sync.Mutex
-	inFlight         atomic.Int32
+	inFlight         atomic.Uint32
 	probeSuccesses   uint32
 	forced           atomic.Bool
 }
 
-// New validates cfg, applies defaults, and returns a Closed breaker.
-func New(cfg Config) (*Breaker, error) { //nolint:gocritic // by-value Config is the public constructor shape
-	cfg, err := cfg.withDefaults()
+// New validates cfg, applies defaults, and returns a Closed breaker. cfg
+// is copied; the breaker keeps no reference to it.
+func New(cfg *Config) (*Breaker, error) {
+	if cfg == nil {
+		return nil, errors.Join(ErrInvalidConfig, ErrNilConfig)
+	}
+	c, err := cfg.withDefaults()
 	if err != nil {
 		return nil, err
 	}
 	b := &Breaker{
-		cfg:              cfg,
-		base:             cfg.Clock(),
-		win:              cfg.Window.newWindow(),
-		probeAdmitted:    make([]int64, cfg.HalfOpenMaxCalls),
-		openRejected:     &RejectedError{Err: ErrOpen, Name: cfg.Name, State: StateOpen},
-		halfOpenRejected: &RejectedError{Err: ErrTooManyProbes, Name: cfg.Name, State: StateHalfOpen},
+		cfg:              c,
+		base:             c.Clock(),
+		win:              c.Window.newWindow(),
+		probeAdmitted:    make([]int64, c.HalfOpenMaxCalls),
+		openRejected:     &RejectedError{Err: ErrOpen, Name: c.Name, State: StateOpen},
+		halfOpenRejected: &RejectedError{Err: ErrTooManyProbes, Name: c.Name, State: StateHalfOpen},
 	}
 	b.packed.Store(pack(firstEpoch, StateClosed))
 	return b, nil
@@ -112,7 +117,7 @@ func (b *Breaker) Snapshot() Snapshot {
 		Counts:   b.win.counts(now),
 		Epoch:    epoch,
 		Attempt:  b.attempt,
-		InFlight: uint32(b.inFlight.Load()), //nolint:gosec // never negative
+		InFlight: b.inFlight.Load(),
 		State:    s,
 		Forced:   b.forced.Load(),
 	}
@@ -191,12 +196,14 @@ func (b *Breaker) admitProbe(now time.Time) (Permit, error) {
 		b.reject(now, b.openRejected)
 		return Permit{}, b.openRejected
 	}
+	var slot uint32
 	for i, t := range b.probeAdmitted {
+		slot++
 		if t == 0 {
 			b.probeAdmitted[i] = b.rel(now) + 1
 			b.inFlight.Add(1)
 			b.mu.Unlock()
-			return Permit{epoch: epoch, slot: uint32(i) + 1}, nil //nolint:gosec // bounded by HalfOpenMaxCalls
+			return Permit{epoch: epoch, slot: slot}, nil
 		}
 	}
 	b.mu.Unlock()
@@ -233,7 +240,7 @@ func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration) {
 	}
 	if p.IsProbe() && b.probeAdmitted[p.slot-1] != 0 {
 		b.probeAdmitted[p.slot-1] = 0
-		b.inFlight.Add(-1)
+		b.inFlight.Add(^uint32(0))
 	}
 	if outcome == OutcomeIgnored {
 		b.mu.Unlock()

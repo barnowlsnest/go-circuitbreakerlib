@@ -55,7 +55,7 @@ func (s *GRPCSuite) TearDownTest() {
 
 func (s *GRPCSuite) newBreaker() *breaker.Breaker {
 	s.T().Helper()
-	b, err := breaker.New(breaker.Config{
+	b, err := breaker.New(&breaker.Config{
 		Name:     testName,
 		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
 		Events:   s.events,

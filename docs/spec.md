@@ -525,7 +525,7 @@ type Config struct {
 }
 ```
 
-`New(cfg Config) (*Breaker, error)` validates and applies defaults. Zero
+`New(cfg *Config) (*Breaker, error)` validates and applies defaults. Zero
 means default; negative or out-of-range (rate > 1) is an error. Validation
 errors are `errors.Join(ErrInvalidConfig, ErrEmptyName)` and similar, so
 `errors.Is` matches both sentinels and no prefix is duplicated in the

@@ -39,7 +39,7 @@ func (c *Composite) AddChild(id string) (*breaker.Breaker, error) {
 	if cfg.Events == nil {
 		cfg.Events = c.events
 	}
-	b, err := breaker.New(cfg)
+	b, err := breaker.New(&cfg)
 	if err != nil {
 		return nil, err
 	}
