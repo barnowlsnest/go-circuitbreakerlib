@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
-	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/registry"
 )
 
 const (
@@ -41,7 +40,7 @@ func (s *HTTPSuite) SetupTest() {
 	s.events = newNoopMockEvents()
 	s.next = &MockRoundTripper{}
 	s.body = &MockBody{}
-	b, err := breaker.New(breaker.Config{
+	b, err := breaker.New(&breaker.Config{
 		Name:     testName,
 		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
 		Events:   s.events,
@@ -204,7 +203,7 @@ func (s *HTTPSuite) TestRejectedWhenOpen() {
 }
 
 func (s *HTTPSuite) TestRegistryKeyedByHost() {
-	reg := registry.New(func(string) breaker.Config { return breaker.Config{} })
+	reg := testRegistry(s.T())
 	rt, err := NewHTTPRoundTripper(s.next, WithRegistry(reg))
 	s.Require().NoError(err)
 	for _, host := range []string{"a.internal", "b.internal"} {
@@ -221,7 +220,7 @@ func (s *HTTPSuite) TestRegistryKeyedByHost() {
 }
 
 func (s *HTTPSuite) TestCustomKey() {
-	reg := registry.New(func(string) breaker.Config { return breaker.Config{} })
+	reg := testRegistry(s.T())
 	rt, err := NewHTTPRoundTripper(s.next, WithRegistry(reg), WithHTTPKey(func(r *http.Request) string { return r.URL.Path }))
 	s.Require().NoError(err)
 	req := s.request(context.Background(), "http://a.internal/by-path")
@@ -234,7 +233,7 @@ func (s *HTTPSuite) TestCustomKey() {
 }
 
 func (s *HTTPSuite) TestRegistryErrorFailsRequest() {
-	reg := registry.New(func(string) breaker.Config { return breaker.Config{OpenDuration: -1} })
+	reg := testFailingRegistry(s.T())
 	rt, err := NewHTTPRoundTripper(s.next, WithRegistry(reg))
 	s.Require().NoError(err)
 	resp, err := rt.RoundTrip(s.request(context.Background(), "http://dep.internal/")) //nolint:bodyclose // the response is nil on error

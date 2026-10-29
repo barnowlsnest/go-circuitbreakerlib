@@ -40,7 +40,7 @@ func (e ExponentialBackoff) Delay(attempt int) time.Duration {
 		d = time.Duration(scaled)
 	}
 	if e.Jitter && d > 0 {
-		d = time.Duration(rand.Int64N(int64(d) + 1)) //nolint:gosec // jitter does not need a CSPRNG
+		d = time.Duration(rand.Int64N(int64(d) + 1))
 	}
 	return d
 }

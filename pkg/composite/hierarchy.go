@@ -71,7 +71,7 @@ func buildComposite(
 			if lc.Events == nil {
 				lc.Events = c.events
 			}
-			leaf, err := breaker.New(lc)
+			leaf, err := breaker.New(&lc)
 			if err != nil {
 				return nil, err
 			}

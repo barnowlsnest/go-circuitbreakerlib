@@ -17,6 +17,8 @@ var (
 	ErrPolicyThreshold = errors.New("policy threshold must be in (0, 1]")
 	// ErrPolicyCount is joined with ErrInvalidConfig when a policy count or MinCalls is zero.
 	ErrPolicyCount = errors.New("policy count must be positive")
+	// ErrNilConfig is joined with ErrInvalidConfig when New is given a nil Config.
+	ErrNilConfig = errors.New("config is nil")
 	// ErrNilPolicy is joined with ErrInvalidConfig when Config.Policies contains nil.
 	ErrNilPolicy = errors.New("policy is nil")
 	// ErrOpen is the cause of a RejectedError while the breaker is Open.

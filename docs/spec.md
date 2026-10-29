@@ -525,7 +525,7 @@ type Config struct {
 }
 ```
 
-`New(cfg Config) (*Breaker, error)` validates and applies defaults. Zero
+`New(cfg *Config) (*Breaker, error)` validates and applies defaults. Zero
 means default; negative or out-of-range (rate > 1) is an error. Validation
 errors are `errors.Join(ErrInvalidConfig, ErrEmptyName)` and similar, so
 `errors.Is` matches both sentinels and no prefix is duplicated in the
@@ -714,7 +714,7 @@ order; each delegate is independently recovered.
 type Registry struct { ... }
 type Factory func(key string) breaker.Config
 
-func New(factory Factory, opts ...Option) *Registry
+func New(factory Factory, opts ...Option) (*Registry, error)
 func WithEvents(ev breaker.Events) Option                        // injected when cfg.Events is nil
 func WithMaxEntries(n int) Option                                // 0 = unbounded
 func WithOnEvict(fn func(key string, b *breaker.Breaker)) Option // e.g. LogEvents.Forget

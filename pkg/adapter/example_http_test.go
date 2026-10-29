@@ -12,12 +12,15 @@ import (
 
 func ExampleNewHTTPRoundTripper() {
 	// One breaker per host, created on first use.
-	hosts := registry.New(func(host string) breaker.Config {
+	hosts, err := registry.New(func(host string) breaker.Config {
 		return breaker.Config{
 			Policies:     []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}},
 			OpenDuration: 30 * time.Second,
 		}
 	})
+	if err != nil {
+		panic(err)
+	}
 	transport, err := adapter.NewHTTPRoundTripper(nil, adapter.WithRegistry(hosts))
 	if err != nil {
 		panic(err)

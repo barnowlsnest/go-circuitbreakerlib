@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
-	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/registry"
 )
 
 const (
@@ -56,7 +55,7 @@ func (s *GRPCSuite) TearDownTest() {
 
 func (s *GRPCSuite) newBreaker() *breaker.Breaker {
 	s.T().Helper()
-	b, err := breaker.New(breaker.Config{
+	b, err := breaker.New(&breaker.Config{
 		Name:     testName,
 		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
 		Events:   s.events,
@@ -212,7 +211,7 @@ func (s *GRPCSuite) TestStreamRejected() {
 }
 
 func (s *GRPCSuite) TestKeyDefaultsToTarget() {
-	reg := registry.New(func(string) breaker.Config { return breaker.Config{} })
+	reg := testRegistry(s.T())
 	unary, err := NewGRPCUnaryInterceptor(WithRegistry(reg))
 	s.Require().NoError(err)
 	s.service.On("UnaryCall", mock.Anything).Return(&grpc_testing.SimpleResponse{}, nil).Once()
@@ -223,7 +222,7 @@ func (s *GRPCSuite) TestKeyDefaultsToTarget() {
 }
 
 func (s *GRPCSuite) TestCustomKeyByMethod() {
-	reg := registry.New(func(string) breaker.Config { return breaker.Config{} })
+	reg := testRegistry(s.T())
 	unary, err := NewGRPCUnaryInterceptor(WithRegistry(reg), WithGRPCKey(
 		func(_ context.Context, method string, _ *grpc.ClientConn) string { return method },
 	))
@@ -236,7 +235,7 @@ func (s *GRPCSuite) TestCustomKeyByMethod() {
 }
 
 func (s *GRPCSuite) TestRegistryErrorFailsCall() {
-	reg := registry.New(func(string) breaker.Config { return breaker.Config{OpenDuration: -1} })
+	reg := testFailingRegistry(s.T())
 	unary, err := NewGRPCUnaryInterceptor(WithRegistry(reg))
 	s.Require().NoError(err)
 	_, err = s.client(unary, nil).UnaryCall(context.Background(), &grpc_testing.SimpleRequest{})

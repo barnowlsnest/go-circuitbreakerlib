@@ -4,14 +4,31 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"testing"
 	"time"
 
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/interop/grpc_testing"
 
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
+	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/registry"
 )
+
+func testRegistry(t *testing.T) *registry.Registry {
+	t.Helper()
+	r, err := registry.New(func(string) breaker.Config { return breaker.Config{} })
+	require.NoError(t, err)
+	return r
+}
+
+func testFailingRegistry(t *testing.T) *registry.Registry {
+	t.Helper()
+	r, err := registry.New(func(string) breaker.Config { return breaker.Config{OpenDuration: -1} })
+	require.NoError(t, err)
+	return r
+}
 
 // MockRoundTripper is a testify mock of http.RoundTripper.
 type MockRoundTripper struct {

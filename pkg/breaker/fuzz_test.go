@@ -30,7 +30,7 @@ func FuzzStateMachine(f *testing.F) {
 		events := newNoopMockEvents()
 		transitions := 0
 		events.On("OnStateChange", mock.Anything).Run(func(mock.Arguments) { transitions++ })
-		b, err := New(Config{
+		b, err := New(&Config{
 			Name:             "fuzz",
 			Policies:         []Policy{ConsecutiveFailures{Count: 2}},
 			OpenDuration:     fuzzOpenDuration,
@@ -120,7 +120,7 @@ func (s *InvariantSuite) TestStalePermitRaceAcrossGoroutines() {
 		workers = 8
 		rounds  = 200
 	)
-	b, err := New(Config{
+	b, err := New(&Config{
 		Name:         "race",
 		Policies:     []Policy{ConsecutiveFailures{Count: 1}},
 		OpenDuration: fuzzOpenDuration,
@@ -166,7 +166,7 @@ func (s *InvariantSuite) TestLeakedSlotDetectedUnderSteadyProbes() {
 		successes = 1000
 		period    = time.Second
 	)
-	b, err := New(Config{
+	b, err := New(&Config{
 		Name:              "leak",
 		Policies:          []Policy{ConsecutiveFailures{Count: 1}},
 		OpenDuration:      fuzzOpenDuration,

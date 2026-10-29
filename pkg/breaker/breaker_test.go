@@ -51,7 +51,7 @@ func (s *BreakerSuite) config() *Config {
 
 func (s *BreakerSuite) mustNew(cfg *Config) *Breaker {
 	s.T().Helper()
-	b, err := New(*cfg)
+	b, err := New(cfg)
 	s.Require().NoError(err)
 	return b
 }
@@ -95,8 +95,22 @@ func (s *BreakerSuite) TestNewDefaults() {
 }
 
 func (s *BreakerSuite) TestNewInvalid() {
-	_, err := New(Config{})
-	s.ErrorIs(err, ErrInvalidConfig)
+	tests := []struct {
+		cfg         *Config
+		expectedErr error
+		name        string
+	}{
+		{name: "empty name", cfg: &Config{}, expectedErr: ErrEmptyName},
+		{name: "nil config", cfg: nil, expectedErr: ErrNilConfig},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			b, err := New(tt.cfg)
+			s.ErrorIs(err, ErrInvalidConfig)
+			s.ErrorIs(err, tt.expectedErr)
+			s.Nil(b)
+		})
+	}
 }
 
 func (s *BreakerSuite) TestClosedAllowReturnsPermit() {

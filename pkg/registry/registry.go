@@ -24,66 +24,50 @@ type entry struct {
 
 // Registry maps keys to breakers. It is safe for concurrent use.
 type Registry struct {
-	m           sync.Map
-	factory     Factory
-	start       time.Time
-	clock       func() time.Time
-	onEvict     func(key string, b *breaker.Breaker)
-	events      breaker.Events
-	rand        *rand.Rand
-	entries     []*entry
-	mu          sync.Mutex
-	maxEntries  int
-	samples     int
-	granularity int64
+	start   time.Time
+	factory Factory
+	m       sync.Map
+	entries []*entry
+	options
+	mu sync.Mutex
 }
 
 // newDefaultRand seeds eviction sampling for one registry. Sampling picks
 // which entries to inspect; it has no security role.
-//
-//nolint:gosec
 func newDefaultRand(seed time.Time) *rand.Rand {
-	return rand.New(rand.NewPCG(uint64(seed.UnixNano()), uint64(seed.Nanosecond())))
+	return rand.New(rand.NewPCG(uint64(seed.UnixNano()), 0))
 }
 
-// New returns a registry that builds breakers with factory. It panics with
-// ErrNilFactory when factory is nil and with ErrInvalidOption on a bad
-// option value.
-func New(factory Factory, opts ...Option) *Registry {
+// New returns a registry that builds breakers with factory. It returns
+// ErrNilFactory when factory is nil and ErrInvalidOption on a bad option
+// value.
+func New(factory Factory, opts ...Option) (*Registry, error) {
 	if factory == nil {
-		panic(ErrNilFactory)
+		return nil, ErrNilFactory
 	}
 	o := options{
 		clock:        time.Now,
+		onEvict:      func(string, *breaker.Breaker) {},
 		evictSamples: DefaultEvictSamples,
 		granularity:  DefaultAccessGranularity,
 	}
 	for _, opt := range opts {
-		opt(&o)
+		if err := opt(&o); err != nil {
+			return nil, err
+		}
 	}
 	start := o.clock()
 	if o.rand == nil {
 		o.rand = newDefaultRand(start)
 	}
-	return &Registry{
-		factory:     factory,
-		clock:       o.clock,
-		start:       start,
-		onEvict:     o.onEvict,
-		events:      o.events,
-		rand:        o.rand,
-		maxEntries:  o.maxEntries,
-		samples:     o.evictSamples,
-		granularity: int64(o.granularity),
-	}
+	return &Registry{factory: factory, start: start, options: o}, nil
 }
 
 // Get returns the breaker for key, creating it on first use. A factory
 // Config that fails validation returns the error on every call and stores
 // nothing.
 func (r *Registry) Get(key string) (*breaker.Breaker, error) {
-	if v, ok := r.m.Load(key); ok {
-		e := v.(*entry)
+	if e, ok := r.load(key); ok {
 		r.touch(e)
 		return e.b, nil
 	}
@@ -93,11 +77,11 @@ func (r *Registry) Get(key string) (*breaker.Breaker, error) {
 // Lookup returns the breaker for key without creating one. It does not
 // count as an access.
 func (r *Registry) Lookup(key string) (*breaker.Breaker, bool) {
-	v, ok := r.m.Load(key)
+	e, ok := r.load(key)
 	if !ok {
 		return nil, false
 	}
-	return v.(*entry).b, true
+	return e.b, true
 }
 
 // Remove drops key and reports whether it was present. OnEvict runs after
@@ -105,14 +89,14 @@ func (r *Registry) Lookup(key string) (*breaker.Breaker, bool) {
 func (r *Registry) Remove(key string) bool {
 	r.mu.Lock()
 	v, ok := r.m.LoadAndDelete(key)
+	if ok {
+		r.unlink(v.(*entry))
+	}
+	r.mu.Unlock()
 	if !ok {
-		r.mu.Unlock()
 		return false
 	}
-	e := v.(*entry)
-	r.unlink(e)
-	r.mu.Unlock()
-	r.evicted(key, e.b)
+	r.onEvict(key, v.(*entry).b)
 	return true
 }
 
@@ -131,6 +115,14 @@ func (r *Registry) Len() int {
 	return len(r.entries)
 }
 
+func (r *Registry) load(key string) (*entry, bool) {
+	v, ok := r.m.Load(key)
+	if !ok {
+		return nil, false
+	}
+	return v.(*entry), true
+}
+
 // elapsed is the time since the registry was created, so access times
 // compare by the clock's monotonic reading rather than the wall clock.
 func (r *Registry) elapsed() int64 { return r.clock().Sub(r.start).Nanoseconds() }
@@ -139,46 +131,52 @@ func (r *Registry) elapsed() int64 { return r.clock().Sub(r.start).Nanoseconds()
 // granularity, so a hot key does not bounce a cache line between cores.
 func (r *Registry) touch(e *entry) {
 	now := r.elapsed()
-	if now-e.lastAccess.Load() >= r.granularity {
+	if time.Duration(now-e.lastAccess.Load()) >= r.granularity {
 		e.lastAccess.Store(now)
 	}
 }
 
 func (r *Registry) create(key string) (*breaker.Breaker, error) {
+	e, victim, err := r.createLocked(key)
+	if err != nil {
+		return nil, err
+	}
+	if victim != nil {
+		r.onEvict(victim.key, victim.b)
+	}
+	return e.b, nil
+}
+
+// createLocked returns the entry for key, building it if no other caller did
+// first, and the entry it evicted to make room, if any.
+func (r *Registry) createLocked(key string) (e, victim *entry, err error) {
 	r.mu.Lock()
-	if v, ok := r.m.Load(key); ok {
-		r.mu.Unlock()
-		e := v.(*entry)
+	defer r.mu.Unlock()
+	if e, ok := r.load(key); ok {
 		r.touch(e)
-		return e.b, nil
+		return e, nil, nil
 	}
 	cfg := r.factory(key)
 	if cfg.Name == "" {
 		cfg.Name = key
 	}
-	if cfg.Events == nil && r.events != nil {
+	if cfg.Events == nil {
 		cfg.Events = r.events
 	}
-	b, err := breaker.New(cfg)
+	b, err := breaker.New(&cfg)
 	if err != nil {
-		r.mu.Unlock()
-		return nil, err
+		return nil, nil, err
 	}
-	var victim *entry
 	if r.maxEntries > 0 && len(r.entries) >= r.maxEntries {
 		victim = r.pickVictim()
 		r.m.Delete(victim.key)
 		r.unlink(victim)
 	}
-	e := &entry{b: b, key: key, index: len(r.entries)}
+	e = &entry{b: b, key: key, index: len(r.entries)}
 	e.lastAccess.Store(r.elapsed())
 	r.entries = append(r.entries, e)
 	r.m.Store(key, e)
-	r.mu.Unlock()
-	if victim != nil {
-		r.evicted(victim.key, victim.b)
-	}
-	return b, nil
+	return e, victim, nil
 }
 
 // pickVictim samples entries and returns the least recently used Closed one,
@@ -187,23 +185,22 @@ func (r *Registry) create(key string) (*breaker.Breaker, error) {
 func (r *Registry) pickVictim() *entry {
 	n := len(r.entries)
 	var oldest, oldestClosed *entry
+	var oldestAt, oldestClosedAt int64
 	consider := func(e *entry) {
-		if oldest == nil || e.lastAccess.Load() < oldest.lastAccess.Load() {
-			oldest = e
+		at := e.lastAccess.Load()
+		if oldest == nil || at < oldestAt {
+			oldest, oldestAt = e, at
 		}
-		if e.b.State() != breaker.StateClosed {
-			return
-		}
-		if oldestClosed == nil || e.lastAccess.Load() < oldestClosed.lastAccess.Load() {
-			oldestClosed = e
+		if (oldestClosed == nil || at < oldestClosedAt) && e.b.State() == breaker.StateClosed {
+			oldestClosed, oldestClosedAt = e, at
 		}
 	}
-	if r.samples >= n {
+	if r.evictSamples >= n {
 		for _, e := range r.entries {
 			consider(e)
 		}
 	} else {
-		for range r.samples {
+		for range r.evictSamples {
 			consider(r.entries[r.rand.IntN(n)])
 		}
 	}
@@ -221,10 +218,4 @@ func (r *Registry) unlink(e *entry) {
 	moved.index = e.index
 	r.entries[last] = nil
 	r.entries = r.entries[:last]
-}
-
-func (r *Registry) evicted(key string, b *breaker.Breaker) {
-	if r.onEvict != nil {
-		r.onEvict(key, b)
-	}
 }

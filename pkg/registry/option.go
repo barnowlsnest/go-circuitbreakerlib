@@ -18,8 +18,8 @@ const (
 )
 
 // Option configures a Registry. An option with an invalid value makes New
-// panic with ErrInvalidOption.
-type Option func(*options)
+// return ErrInvalidOption.
+type Option func(*options) error
 
 type options struct {
 	clock        func() time.Time
@@ -34,21 +34,23 @@ type options struct {
 // WithEvents sets the Events given to every breaker whose Config.Events is
 // nil.
 func WithEvents(ev breaker.Events) Option {
-	return func(o *options) {
+	return func(o *options) error {
 		if ev == nil {
-			panic(fmt.Errorf("%w: nil events", ErrInvalidOption))
+			return fmt.Errorf("%w: nil events", ErrInvalidOption)
 		}
 		o.events = ev
+		return nil
 	}
 }
 
 // WithMaxEntries bounds the registry. 0 means unbounded.
 func WithMaxEntries(n int) Option {
-	return func(o *options) {
+	return func(o *options) error {
 		if n < 0 {
-			panic(fmt.Errorf("%w: max entries %d", ErrInvalidOption, n))
+			return fmt.Errorf("%w: max entries %d", ErrInvalidOption, n)
 		}
 		o.maxEntries = n
+		return nil
 	}
 }
 
@@ -56,11 +58,12 @@ func WithMaxEntries(n int) Option {
 // registry, by eviction or Remove. hooks.LogEvents.Forget is the intended
 // callback.
 func WithOnEvict(fn func(key string, b *breaker.Breaker)) Option {
-	return func(o *options) {
+	return func(o *options) error {
 		if fn == nil {
-			panic(fmt.Errorf("%w: nil on-evict", ErrInvalidOption))
+			return fmt.Errorf("%w: nil on-evict", ErrInvalidOption)
 		}
 		o.onEvict = fn
+		return nil
 	}
 }
 
@@ -68,32 +71,35 @@ func WithOnEvict(fn func(key string, b *breaker.Breaker)) Option {
 // before evicting one. n must be at least 1; the default is 8. A value at or
 // above the registry size inspects every entry.
 func WithEvictSamples(n int) Option {
-	return func(o *options) {
+	return func(o *options) error {
 		if n < 1 {
-			panic(fmt.Errorf("%w: evict samples %d", ErrInvalidOption, n))
+			return fmt.Errorf("%w: evict samples %d", ErrInvalidOption, n)
 		}
 		o.evictSamples = n
+		return nil
 	}
 }
 
 // WithAccessGranularity sets how stale an entry's access time must be
 // before a hit stores a new one. 0 stores on every hit. The default is 1s.
 func WithAccessGranularity(d time.Duration) Option {
-	return func(o *options) {
+	return func(o *options) error {
 		if d < 0 {
-			panic(fmt.Errorf("%w: access granularity %v", ErrInvalidOption, d))
+			return fmt.Errorf("%w: access granularity %v", ErrInvalidOption, d)
 		}
 		o.granularity = d
+		return nil
 	}
 }
 
 // WithClock sets the time source for access times. The default is time.Now.
 func WithClock(fn func() time.Time) Option {
-	return func(o *options) {
+	return func(o *options) error {
 		if fn == nil {
-			panic(fmt.Errorf("%w: nil clock", ErrInvalidOption))
+			return fmt.Errorf("%w: nil clock", ErrInvalidOption)
 		}
 		o.clock = fn
+		return nil
 	}
 }
 
@@ -101,10 +107,11 @@ func WithClock(fn func() time.Time) Option {
 // only uses it under its own lock. The default is a generator of its own,
 // seeded from the clock when the registry is created.
 func WithRand(r *rand.Rand) Option {
-	return func(o *options) {
+	return func(o *options) error {
 		if r == nil {
-			panic(fmt.Errorf("%w: nil rand", ErrInvalidOption))
+			return fmt.Errorf("%w: nil rand", ErrInvalidOption)
 		}
 		o.rand = r
+		return nil
 	}
 }

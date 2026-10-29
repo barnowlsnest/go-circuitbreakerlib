@@ -68,6 +68,8 @@ linters:
     gosec:
       excludes:
         - G118
+        # math/rand only drives eviction sampling and backoff jitter, never secrets.
+        - G404
     misspell:
       locale: US
     staticcheck:

@@ -13,7 +13,7 @@ import (
 )
 
 func ExampleNewGRPCUnaryInterceptor() {
-	b, err := breaker.New(breaker.Config{
+	b, err := breaker.New(&breaker.Config{
 		Name:         "inventory",
 		Policies:     []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}},
 		OpenDuration: 30 * time.Second,

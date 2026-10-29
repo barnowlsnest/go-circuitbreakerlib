@@ -22,10 +22,10 @@ func TestOptionSuite(t *testing.T) {
 }
 
 func (s *OptionSuite) SetupTest() {
-	b, err := breaker.New(breaker.Config{Name: testName})
+	b, err := breaker.New(&breaker.Config{Name: testName})
 	s.Require().NoError(err)
 	s.breaker = b
-	s.registry = registry.New(func(string) breaker.Config { return breaker.Config{} })
+	s.registry = testRegistry(s.T())
 }
 
 func (s *OptionSuite) TestExactlyOneSource() {
@@ -80,7 +80,7 @@ func (s *OptionSuite) TestResolve() {
 }
 
 func (s *OptionSuite) TestResolveRegistryError() {
-	bad := registry.New(func(string) breaker.Config { return breaker.Config{OpenDuration: -1} })
+	bad := testFailingRegistry(s.T())
 	st, err := newSettings(protoHTTP, []Option{WithRegistry(bad)})
 	s.Require().NoError(err)
 	b, err := st.resolve("x")

@@ -28,7 +28,7 @@ func benchBreaker(b *testing.B, level logger.Level, out io.Writer) *breaker.Brea
 	if err != nil {
 		b.Fatal(err)
 	}
-	br, err := breaker.New(breaker.Config{
+	br, err := breaker.New(&breaker.Config{
 		Name:     "bench",
 		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1 << 30}},
 		Events:   ev,
