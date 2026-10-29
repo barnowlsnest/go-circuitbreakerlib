@@ -73,7 +73,7 @@ func New(cfg Config) (*Composite, error) {
 		scanInterval: cfg.ScanInterval,
 	}
 	if c.trip == nil {
-		c.trip = AllOf(OpenChildrenRatio(defaultTripRatio), AggregateFailureRate(defaultTripRate, defaultTripMinCalls))
+		c.trip = allOf(openChildrenRatio(defaultTripRatio), aggregateFailureRate(defaultTripRate, defaultTripMinCalls))
 	}
 	if c.events == nil {
 		c.events = breaker.NewNoopEvents()

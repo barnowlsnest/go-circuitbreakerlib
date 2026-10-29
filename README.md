@@ -323,6 +323,10 @@ Dependency A calls dependency B, which runs on three instances:
 ```go
 // One breaker per instance of a dependency, and a parent that opens when
 // half of the instances are down.
+trip, err := composite.OpenChildrenRatio(0.5)
+if err != nil {
+	panic(err)
+}
 dep, err := composite.New(composite.Config{
 	Name: "search",
 	ChildTemplate: func(instance string) breaker.Config {
@@ -331,7 +335,7 @@ dep, err := composite.New(composite.Config{
 			OpenDuration: 10 * time.Second,
 		}
 	},
-	Trip: composite.OpenChildrenRatio(0.5),
+	Trip: trip,
 })
 if err != nil {
 	panic(err)
@@ -357,7 +361,8 @@ fmt.Println(err, dep.State())
 Trip functions: `OpenChildren(n)`, `OpenChildrenRatio(r)`,
 `AggregateFailureRate(threshold, minCalls)`, combined with `AllOf` and
 `AnyOf`. The default is `AllOf(OpenChildrenRatio(0.5),
-AggregateFailureRate(0.5, 50))`. A bad argument panics at construction.
+AggregateFailureRate(0.5, 50))`. Each one returns `ErrInvalidConfig` for a
+bad argument.
 
 How the parent recovers: when the parent trips, it freezes its aggregate
 counts. While Open, every `Pick` re-evaluates `Trip` with the live
@@ -388,9 +393,13 @@ model := tree.HierarchyModel{
 	"eu-west":    {"10.0.1.5:443", "10.0.1.6:443"},
 	"us-east":    {"10.0.2.5:443"},
 }
+trip, err := composite.OpenChildrenRatio(0.5)
+if err != nil {
+	panic(err)
+}
 root, err := composite.FromHierarchy(model, 16,
 	func(path []string) composite.Config {
-		return composite.Config{Trip: composite.OpenChildrenRatio(0.5)}
+		return composite.Config{Trip: trip}
 	},
 	func(path []string) breaker.Config {
 		return breaker.Config{

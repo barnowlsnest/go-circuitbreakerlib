@@ -18,9 +18,13 @@ func ExampleFromHierarchy() {
 		"eu-west":    {"10.0.1.5:443", "10.0.1.6:443"},
 		"us-east":    {"10.0.2.5:443"},
 	}
+	trip, err := composite.OpenChildrenRatio(0.5)
+	if err != nil {
+		panic(err)
+	}
 	root, err := composite.FromHierarchy(model, 16,
 		func(path []string) composite.Config {
-			return composite.Config{Trip: composite.OpenChildrenRatio(0.5)}
+			return composite.Config{Trip: trip}
 		},
 		func(path []string) breaker.Config {
 			return breaker.Config{

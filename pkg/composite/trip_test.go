@@ -38,7 +38,9 @@ func (s *TripSuite) TestOpenChildren() {
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			s.Equal(tt.expected, OpenChildren(tt.min)(tt.open, tt.total, breaker.Counts{}))
+			trip, err := OpenChildren(tt.min)
+			s.Require().NoError(err)
+			s.Equal(tt.expected, trip(tt.open, tt.total, breaker.Counts{}))
 		})
 	}
 }
@@ -61,7 +63,9 @@ func (s *TripSuite) TestOpenChildrenRatio() {
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			s.Equal(tt.expected, OpenChildrenRatio(tt.ratio)(tt.open, tt.total, breaker.Counts{}))
+			trip, err := OpenChildrenRatio(tt.ratio)
+			s.Require().NoError(err)
+			s.Equal(tt.expected, trip(tt.open, tt.total, breaker.Counts{}))
 		})
 	}
 }
@@ -82,7 +86,9 @@ func (s *TripSuite) TestAggregateFailureRate() {
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			s.Equal(tt.expected, AggregateFailureRate(tt.threshold, tt.minCalls)(0, 0, tt.agg))
+			trip, err := AggregateFailureRate(tt.threshold, tt.minCalls)
+			s.Require().NoError(err)
+			s.Equal(tt.expected, trip(0, 0, tt.agg))
 		})
 	}
 }
@@ -91,7 +97,7 @@ func (s *TripSuite) TestAllOfAnyOf() {
 	agg := breaker.Counts{Total: tripMinCalls}
 	tests := []struct {
 		name     string
-		combine  func(...TripFunc) TripFunc
+		combine  func(...TripFunc) (TripFunc, error)
 		results  []bool
 		expected bool
 	}{
@@ -112,7 +118,9 @@ func (s *TripSuite) TestAllOfAnyOf() {
 				mocks = append(mocks, m)
 				fns = append(fns, m.Trip)
 			}
-			s.Equal(tt.expected, tt.combine(fns...)(tripOpen, tripTotal, agg))
+			trip, err := tt.combine(fns...)
+			s.Require().NoError(err)
+			s.Equal(tt.expected, trip(tripOpen, tripTotal, agg))
 			for _, m := range mocks {
 				m.AssertExpectations(s.T())
 			}
@@ -124,28 +132,32 @@ func (s *TripSuite) TestAllOfStopsAtFirstFalse() {
 	first := &MockTrip{}
 	second := &MockTrip{}
 	first.On("Trip", tripOpen, tripTotal, breaker.Counts{}).Return(false).Once()
-	s.False(AllOf(first.Trip, second.Trip)(tripOpen, tripTotal, breaker.Counts{}))
+	trip, err := AllOf(first.Trip, second.Trip)
+	s.Require().NoError(err)
+	s.False(trip(tripOpen, tripTotal, breaker.Counts{}))
 	first.AssertExpectations(s.T())
 	second.AssertNotCalled(s.T(), "Trip", mock.Anything, mock.Anything, mock.Anything)
 }
 
-func (s *TripSuite) TestInvalidArgumentsPanic() {
+func (s *TripSuite) TestInvalidArguments() {
 	tests := []struct {
-		fn   func()
-		name string
+		build func() (TripFunc, error)
+		name  string
 	}{
-		{name: "open children zero", fn: func() { OpenChildren(0) }},
-		{name: "open children negative", fn: func() { OpenChildren(-1) }},
-		{name: "ratio above one", fn: func() { OpenChildrenRatio(1.1) }},
-		{name: "ratio negative", fn: func() { OpenChildrenRatio(-0.1) }},
-		{name: "threshold above one", fn: func() { AggregateFailureRate(1.1, 0) }},
-		{name: "threshold negative", fn: func() { AggregateFailureRate(-0.1, 0) }},
-		{name: "all of nil func", fn: func() { AllOf(nil) }},
-		{name: "any of nil func", fn: func() { AnyOf(nil) }},
+		{name: "open children zero", build: func() (TripFunc, error) { return OpenChildren(0) }},
+		{name: "open children negative", build: func() (TripFunc, error) { return OpenChildren(-1) }},
+		{name: "ratio above one", build: func() (TripFunc, error) { return OpenChildrenRatio(1.1) }},
+		{name: "ratio negative", build: func() (TripFunc, error) { return OpenChildrenRatio(-0.1) }},
+		{name: "threshold above one", build: func() (TripFunc, error) { return AggregateFailureRate(1.1, 0) }},
+		{name: "threshold negative", build: func() (TripFunc, error) { return AggregateFailureRate(-0.1, 0) }},
+		{name: "all of nil func", build: func() (TripFunc, error) { return AllOf(nil) }},
+		{name: "any of nil func", build: func() (TripFunc, error) { return AnyOf(nil) }},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			s.Panics(tt.fn)
+			trip, err := tt.build()
+			s.ErrorIs(err, ErrInvalidConfig)
+			s.Nil(trip)
 		})
 	}
 }

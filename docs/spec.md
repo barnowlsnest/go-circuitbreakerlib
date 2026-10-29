@@ -763,11 +763,11 @@ type Config struct {
 // and on every parent Allow while Open.
 type TripFunc func(openChildren, totalChildren int, aggregate breaker.Counts) bool
 
-func OpenChildren(min int) TripFunc                            // panics if min < 0
-func OpenChildrenRatio(ratio float64) TripFunc                 // panics unless 0 <= ratio <= 1
-func AggregateFailureRate(threshold float64, minCalls uint32) TripFunc // panics unless 0 <= threshold <= 1
-func AllOf(fns ...TripFunc) TripFunc
-func AnyOf(fns ...TripFunc) TripFunc
+func OpenChildren(min int) (TripFunc, error)                            // ErrInvalidConfig if min < 1
+func OpenChildrenRatio(ratio float64) (TripFunc, error)                 // ErrInvalidConfig unless 0 <= ratio <= 1
+func AggregateFailureRate(threshold float64, minCalls uint32) (TripFunc, error) // ErrInvalidConfig unless 0 <= threshold <= 1
+func AllOf(fns ...TripFunc) (TripFunc, error)                           // ErrInvalidConfig on a nil fn
+func AnyOf(fns ...TripFunc) (TripFunc, error)                           // ErrInvalidConfig on a nil fn
 ```
 
 `New` returns `ErrInvalidConfig` if `Parent.Policies` is non-empty, because

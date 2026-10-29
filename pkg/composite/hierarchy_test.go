@@ -42,7 +42,7 @@ func (s *HierarchySuite) model() tree.HierarchyModel {
 
 func (s *HierarchySuite) TestBuildsTree() {
 	for _, path := range [][]string{{"payments"}, {"payments", "eu"}, {"payments", "us"}} {
-		s.cfg.On("Composite", path).Return(s.config("", OpenChildren(1))).Once()
+		s.cfg.On("Composite", path).Return(s.config("", s.openChildren(1))).Once()
 	}
 	for _, path := range [][]string{{"payments", "eu", "h1"}, {"payments", "eu", "h2"}, {"payments", "us", "h3"}} {
 		s.cfg.On("Leaf", path).Return(s.template("")).Once()
@@ -85,7 +85,7 @@ func (s *HierarchySuite) TestNamesFromConfigWin() {
 }
 
 func (s *HierarchySuite) TestLeafEventsDefaultToComposite() {
-	s.cfg.On("Composite", mock.Anything).Return(s.config("", OpenChildren(1))).Once()
+	s.cfg.On("Composite", mock.Anything).Return(s.config("", s.openChildren(1))).Once()
 	s.cfg.On("Leaf", mock.Anything).Return(s.template("")).Once()
 	single := tree.HierarchyModel{tree.RootTag: {"payments"}, "payments": {"h1"}}
 	root, err := FromHierarchy(single, testMaxBreadth, s.cfg.Composite, s.cfg.Leaf)
@@ -147,7 +147,7 @@ func (s *HierarchySuite) TestInvalidInput() {
 			compositeCfg, leafCfg := tt.compositeCfg, tt.leafCfg
 			if compositeCfg == nil && leafCfg == nil {
 				compositeCfg, leafCfg = s.cfg.Composite, s.cfg.Leaf
-				composite := s.config("", OpenChildren(1))
+				composite := s.config("", s.openChildren(1))
 				if tt.composite != nil {
 					composite = *tt.composite
 				}

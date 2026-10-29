@@ -79,6 +79,14 @@ func (s *baseSuite) config(name string, trip TripFunc) Config {
 	}
 }
 
+// openChildren builds an OpenChildren trip that must be valid.
+func (s *baseSuite) openChildren(minOpen int) TripFunc {
+	s.T().Helper()
+	trip, err := OpenChildren(minOpen)
+	s.Require().NoError(err)
+	return trip
+}
+
 // mustNew builds a composite with n leaves named a, b, c, ...
 func (s *baseSuite) mustNew(trip TripFunc, leaves ...string) (c *Composite, byID map[string]*breaker.Breaker) {
 	s.T().Helper()
@@ -298,7 +306,7 @@ func (s *CompositeSuite) TestEventsDefaults() {
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			cfg := s.config(testName, OpenChildren(1))
+			cfg := s.config(testName, s.openChildren(1))
 			cfg.Parent.Events = tt.parentEvents
 			cfg.ChildTemplate = func(id string) breaker.Config {
 				t := s.template(id)
@@ -363,7 +371,7 @@ func (s *CompositeSuite) TestTripFreezesAggregate() {
 }
 
 func (s *CompositeSuite) TestReopenEarlyWhenChildrenRecover() {
-	c, leaves := s.mustNew(OpenChildren(2), "a", "b", "c")
+	c, leaves := s.mustNew(s.openChildren(2), "a", "b", "c")
 	s.trip(leaves["a"])
 	s.trip(leaves["b"])
 	s.record(c, 1, 1)
@@ -400,7 +408,7 @@ func (s *CompositeSuite) TestFrozenAggregateKeepsParentOpen() {
 
 func (s *CompositeSuite) TestClosingRecheckReopens() {
 	s.childTrip = testNeverTrip
-	c, leaves := s.mustNew(OpenChildren(2), "a", "b", "c")
+	c, leaves := s.mustNew(s.openChildren(2), "a", "b", "c")
 	s.forceOpen(leaves["a"])
 	s.forceOpen(leaves["b"])
 	s.record(c, 1, 1)
@@ -422,7 +430,7 @@ func (s *CompositeSuite) TestClosingRecheckReopens() {
 }
 
 func (s *CompositeSuite) TestTripAggregateClearedOnClose() {
-	c, leaves := s.mustNew(OpenChildren(1), "a", "b")
+	c, leaves := s.mustNew(s.openChildren(1), "a", "b")
 	s.trip(leaves["a"])
 	s.record(c, 1, 1)
 	s.Require().Equal(breaker.StateOpen, c.State())

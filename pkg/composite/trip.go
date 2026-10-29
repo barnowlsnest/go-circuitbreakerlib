@@ -13,25 +13,28 @@ import (
 // Allow while Open.
 type TripFunc func(openChildren, totalChildren int, aggregate breaker.Counts) bool
 
-// OpenChildren trips when at least minOpen children are Open. It panics if
-// minOpen is less than 1, since 0 would mean "always tripped". Like
-// regexp.MustCompile, a bad argument fails at startup, never at request
-// time.
-func OpenChildren(minOpen int) TripFunc {
+// OpenChildren trips when at least minOpen children are Open. It returns
+// ErrInvalidConfig if minOpen is less than 1, since 0 would mean "always
+// tripped".
+func OpenChildren(minOpen int) (TripFunc, error) {
 	if minOpen < 1 {
-		panic(fmt.Errorf("%w: OpenChildren min %d, want >= 1", breaker.ErrInvalidConfig, minOpen))
+		return nil, fmt.Errorf("%w: OpenChildren min %d, want >= 1", ErrInvalidConfig, minOpen)
 	}
 	return func(open, _ int, _ breaker.Counts) bool {
 		return open >= minOpen
-	}
+	}, nil
 }
 
 // OpenChildrenRatio trips when open/total >= ratio. With no children it
-// never trips. It panics unless 0 <= ratio <= 1.
-func OpenChildrenRatio(ratio float64) TripFunc {
+// never trips. It returns ErrInvalidConfig unless 0 <= ratio <= 1.
+func OpenChildrenRatio(ratio float64) (TripFunc, error) {
 	if ratio < 0 || ratio > 1 {
-		panic(fmt.Errorf("%w: OpenChildrenRatio %v, want 0..1", breaker.ErrInvalidConfig, ratio))
+		return nil, fmt.Errorf("%w: OpenChildrenRatio %v, want 0..1", ErrInvalidConfig, ratio)
 	}
+	return openChildrenRatio(ratio), nil
+}
+
+func openChildrenRatio(ratio float64) TripFunc {
 	return func(open, total int, _ breaker.Counts) bool {
 		return total > 0 && float64(open)/float64(total) >= ratio
 	}
@@ -39,19 +42,29 @@ func OpenChildrenRatio(ratio float64) TripFunc {
 
 // AggregateFailureRate trips when the parent's aggregate has at least
 // minCalls calls and failures/total >= threshold. With no calls it never
-// trips. It panics unless 0 <= threshold <= 1.
-func AggregateFailureRate(threshold float64, minCalls uint32) TripFunc {
+// trips. It returns ErrInvalidConfig unless 0 <= threshold <= 1.
+func AggregateFailureRate(threshold float64, minCalls uint32) (TripFunc, error) {
 	if threshold < 0 || threshold > 1 {
-		panic(fmt.Errorf("%w: AggregateFailureRate %v, want 0..1", breaker.ErrInvalidConfig, threshold))
+		return nil, fmt.Errorf("%w: AggregateFailureRate %v, want 0..1", ErrInvalidConfig, threshold)
 	}
+	return aggregateFailureRate(threshold, minCalls), nil
+}
+
+func aggregateFailureRate(threshold float64, minCalls uint32) TripFunc {
 	rate := breaker.FailureRate{Threshold: threshold, MinCalls: minCalls}
 	return func(_, _ int, agg breaker.Counts) bool { return rate.ShouldTrip(agg) }
 }
 
 // AllOf trips when every fn trips, stopping at the first that does not.
-// With no fns it never trips. It panics on a nil fn.
-func AllOf(fns ...TripFunc) TripFunc {
-	rejectNil(fns)
+// With no fns it never trips. It returns ErrInvalidConfig on a nil fn.
+func AllOf(fns ...TripFunc) (TripFunc, error) {
+	if err := rejectNil(fns); err != nil {
+		return nil, err
+	}
+	return allOf(fns...), nil
+}
+
+func allOf(fns ...TripFunc) TripFunc {
 	if len(fns) == 0 {
 		return func(int, int, breaker.Counts) bool { return false }
 	}
@@ -66,9 +79,11 @@ func AllOf(fns ...TripFunc) TripFunc {
 }
 
 // AnyOf trips when any fn trips, stopping at the first that does. With no
-// fns it never trips. It panics on a nil fn.
-func AnyOf(fns ...TripFunc) TripFunc {
-	rejectNil(fns)
+// fns it never trips. It returns ErrInvalidConfig on a nil fn.
+func AnyOf(fns ...TripFunc) (TripFunc, error) {
+	if err := rejectNil(fns); err != nil {
+		return nil, err
+	}
 	return func(open, total int, agg breaker.Counts) bool {
 		for _, fn := range fns {
 			if fn(open, total, agg) {
@@ -76,13 +91,14 @@ func AnyOf(fns ...TripFunc) TripFunc {
 			}
 		}
 		return false
-	}
+	}, nil
 }
 
-func rejectNil(fns []TripFunc) {
+func rejectNil(fns []TripFunc) error {
 	for i, fn := range fns {
 		if fn == nil {
-			panic(fmt.Errorf("%w: nil TripFunc at %d", breaker.ErrInvalidConfig, i))
+			return fmt.Errorf("%w: nil TripFunc at %d", ErrInvalidConfig, i)
 		}
 	}
+	return nil
 }

@@ -123,8 +123,8 @@ func (s *LeaseSuite) TestZeroLeaseIsInert() {
 
 func (s *LeaseSuite) TestNestedRecordWalksPath() {
 	root, _ := s.mustNew(nil)
-	mid, _ := s.mustNewNamed("mid", OpenChildren(1))
-	leafOwner, leaves := s.mustNewNamed("inner", OpenChildren(1), "leaf")
+	mid, _ := s.mustNewNamed("mid", s.openChildren(1))
+	leafOwner, leaves := s.mustNewNamed("inner", s.openChildren(1), "leaf")
 	s.Require().NoError(mid.AttachChild(leafOwner))
 	s.Require().NoError(root.AttachChild(mid))
 
@@ -142,8 +142,8 @@ func (s *LeaseSuite) TestNestedRecordWalksPath() {
 
 func (s *LeaseSuite) TestNestedPickReleasesIntermediatePermit() {
 	root, _ := s.mustNew(nil)
-	first, firstLeaves := s.mustNewNamed("first", OpenChildren(1), "a", "b")
-	second, secondLeaves := s.mustNewNamed("second", OpenChildren(1), "c", "d")
+	first, firstLeaves := s.mustNewNamed("first", s.openChildren(1), "a", "b")
+	second, secondLeaves := s.mustNewNamed("second", s.openChildren(1), "c", "d")
 	s.Require().NoError(root.AttachChild(first))
 	s.Require().NoError(root.AttachChild(second))
 	for _, leaves := range []map[string]*breaker.Breaker{firstLeaves, secondLeaves} {
@@ -174,8 +174,8 @@ func (s *LeaseSuite) TestNestedPickReleasesIntermediatePermit() {
 
 func (s *LeaseSuite) TestNestedPickSkipsOpenSubComposite() {
 	root, _ := s.mustNew(nil)
-	first, _ := s.mustNewNamed("first", OpenChildren(1), "a")
-	second, _ := s.mustNewNamed("second", OpenChildren(1), "b")
+	first, _ := s.mustNewNamed("first", s.openChildren(1), "a")
+	second, _ := s.mustNewNamed("second", s.openChildren(1), "b")
 	s.Require().NoError(root.AttachChild(first))
 	s.Require().NoError(root.AttachChild(second))
 	first.ForceOpen()
@@ -189,10 +189,10 @@ func (s *LeaseSuite) TestNestedPickSkipsOpenSubComposite() {
 
 func (s *LeaseSuite) TestTooDeep() {
 	root, _ := s.mustNew(nil)
-	level2, _ := s.mustNewNamed("level2", OpenChildren(1))
-	level3, _ := s.mustNewNamed("level3", OpenChildren(1))
-	level4, _ := s.mustNewNamed("level4", OpenChildren(1))
-	withLeaves, _ := s.mustNewNamed("with-leaves", OpenChildren(1), "x")
+	level2, _ := s.mustNewNamed("level2", s.openChildren(1))
+	level3, _ := s.mustNewNamed("level3", s.openChildren(1))
+	level4, _ := s.mustNewNamed("level4", s.openChildren(1))
+	withLeaves, _ := s.mustNewNamed("with-leaves", s.openChildren(1), "x")
 	s.Require().NoError(root.AttachChild(level2))
 	s.Require().NoError(level2.AttachChild(level3))
 	s.Require().NoError(level3.AttachChild(level4))
