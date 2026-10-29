@@ -142,7 +142,7 @@ func NewGRPCUnaryInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, error
 		}
 		start := time.Now()
 		err = invoker(ctx, method, req, reply, cc, callOpts...)
-		b.Record(p, classify(b, func() breaker.Outcome { return s.grpcClassifier(ctx, err) }), time.Since(start))
+		b.Record(p, classifyGRPC(b, s.grpcClassifier, ctx, err), time.Since(start))
 		return err
 	}, nil
 }
@@ -169,7 +169,7 @@ func NewGRPCStreamInterceptor(opts ...Option) (grpc.StreamClientInterceptor, err
 		}
 		start := time.Now()
 		stream, err := streamer(ctx, desc, cc, method, callOpts...)
-		b.Record(p, classify(b, func() breaker.Outcome { return s.grpcClassifier(ctx, err) }), time.Since(start))
+		b.Record(p, classifyGRPC(b, s.grpcClassifier, ctx, err), time.Since(start))
 		return stream, err
 	}, nil
 }

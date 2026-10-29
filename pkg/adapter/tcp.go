@@ -91,7 +91,7 @@ func (d *TCPDialer) DialContext(ctx context.Context, network, address string) (n
 	}
 	start := time.Now()
 	conn, err := d.next.DialContext(ctx, network, address)
-	b.Record(p, classify(b, func() breaker.Outcome { return d.settings.tcpClassifier(ctx, err) }), time.Since(start))
+	b.Record(p, classifyTCP(b, d.settings.tcpClassifier, ctx, err), time.Since(start))
 	if err != nil {
 		return nil, err
 	}
