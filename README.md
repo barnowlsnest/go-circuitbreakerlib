@@ -51,7 +51,7 @@ hosts, err := registry.New(
 if err != nil {
 	panic(err)
 }
-transport, err := adapter.NewHTTPRoundTripper(nil, adapter.WithRegistry(hosts))
+transport, err := adapter.NewHTTPRoundTripper(http.DefaultTransport, adapter.WithRegistry(hosts))
 if err != nil {
 	panic(err)
 }
@@ -432,10 +432,10 @@ is ignored rather than counted.
 ### HTTP
 
 ```go
-transport, err := adapter.NewHTTPRoundTripper(nil, adapter.WithRegistry(hosts))
+transport, err := adapter.NewHTTPRoundTripper(http.DefaultTransport, adapter.WithRegistry(hosts))
 ```
 
-`nil` wraps `http.DefaultTransport`. `WithHTTPKey` picks the registry key
+`nil` is also accepted and wraps `http.DefaultTransport`. `WithHTTPKey` picks the registry key
 (default `req.URL.Host`); `WithHTTPClassifier` replaces
 `DefaultHTTPClassifier`, which counts a transport error (deadline included),
 status 5xx, and 408 as failures and everything else, 429 included, as
