@@ -21,6 +21,11 @@ const (
 	testSeed2      = 22
 	testRaceKeys   = 500
 	testRaceMax    = 20
+	testRegistries = 2
+
+	testGranularity  = time.Second
+	testInsideWindow = 500 * time.Millisecond
+	testPastWindow   = 600 * time.Millisecond
 )
 
 type RegistrySuite struct {
@@ -46,6 +51,10 @@ func (s *RegistrySuite) TearDownTest() {
 	s.factory.AssertExpectations(s.T())
 	s.onEvict.AssertExpectations(s.T())
 	s.events.AssertExpectations(s.T())
+}
+
+func newTestRand() *rand.Rand {
+	return rand.New(rand.NewPCG(testSeed1, testSeed2))
 }
 
 // config is a valid breaker config that trips on the first failure.
@@ -187,35 +196,38 @@ func (s *RegistrySuite) TestLookup() {
 }
 
 func (s *RegistrySuite) TestEvictPrefersClosed() {
-	r := s.newRegistry(WithMaxEntries(3), WithEvictSamples(3))
-	b := s.mustGet(r, "b")
-	c := s.mustGet(r, "c")
-	a := s.mustGet(r, "a")
-	a.ForceOpen()
-	s.onEvict.On("Evict", "b", b).Once()
-	d := s.mustGet(r, "d")
-	s.Equal(3, r.Len())
-	_, ok := r.Lookup("b")
-	s.False(ok)
-	for key, expected := range map[string]*breaker.Breaker{"a": a, "c": c, "d": d} {
-		actual, ok := r.Lookup(key)
-		s.True(ok, key)
-		s.Same(expected, actual)
+	tests := []struct {
+		name           string
+		expectedVictim string
+		keys           []string
+		open           []string
+	}{
+		{name: "oldest closed over older open", keys: []string{"b", "c", "a"}, open: []string{"a"}, expectedVictim: "b"},
+		{name: "oldest open when all open", keys: []string{"a", "b"}, open: []string{"a", "b"}, expectedVictim: "a"},
 	}
-}
-
-func (s *RegistrySuite) TestEvictOpenOnlyIfAllSamplesOpen() {
-	r := s.newRegistry(WithMaxEntries(2), WithEvictSamples(2))
-	a := s.mustGet(r, "a")
-	b := s.mustGet(r, "b")
-	a.ForceOpen()
-	b.ForceOpen()
-	s.onEvict.On("Evict", "a", a).Once()
-	s.mustGet(r, "c")
-	_, ok := r.Lookup("a")
-	s.False(ok)
-	_, ok = r.Lookup("b")
-	s.True(ok)
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			r := s.newRegistry(WithMaxEntries(len(tt.keys)), WithEvictSamples(len(tt.keys)))
+			breakers := make(map[string]*breaker.Breaker, len(tt.keys)+1)
+			for _, key := range tt.keys {
+				breakers[key] = s.mustGet(r, key)
+			}
+			for _, key := range tt.open {
+				breakers[key].ForceOpen()
+			}
+			s.onEvict.On("Evict", tt.expectedVictim, breakers[tt.expectedVictim]).Once()
+			breakers["new"] = s.mustGet(r, "new")
+			delete(breakers, tt.expectedVictim)
+			s.Equal(len(tt.keys), r.Len())
+			_, ok := r.Lookup(tt.expectedVictim)
+			s.False(ok)
+			for key, expected := range breakers {
+				actual, ok := r.Lookup(key)
+				s.True(ok, key)
+				s.Same(expected, actual)
+			}
+		})
+	}
 }
 
 func (s *RegistrySuite) TestSampledEvictionUsesRand() {
@@ -223,7 +235,7 @@ func (s *RegistrySuite) TestSampledEvictionUsesRand() {
 	r := s.newRegistry(
 		WithMaxEntries(testEntries),
 		WithEvictSamples(testSamples),
-		WithRand(rand.New(rand.NewPCG(testSeed1, testSeed2))),
+		WithRand(newTestRand()),
 	)
 	var breakers [testEntries]*breaker.Breaker
 	for i, key := range keys {
@@ -231,7 +243,7 @@ func (s *RegistrySuite) TestSampledEvictionUsesRand() {
 	}
 	// The registry draws one index per sample from the same generator, so
 	// the oldest of these draws is the victim.
-	g := rand.New(rand.NewPCG(testSeed1, testSeed2))
+	g := newTestRand()
 	victim := testEntries
 	for range testSamples {
 		if i := g.IntN(testEntries); i < victim {
@@ -247,10 +259,11 @@ func (s *RegistrySuite) TestSampledEvictionUsesRand() {
 
 func (s *RegistrySuite) TestUnboundedNeverEvicts() {
 	r := s.newRegistry()
-	for _, key := range []string{"a", "b", "c", "d"} {
+	keys := []string{"a", "b", "c", "d"}
+	for _, key := range keys {
 		s.mustGet(r, key)
 	}
-	s.Equal(4, r.Len())
+	s.Equal(len(keys), r.Len())
 }
 
 func (s *RegistrySuite) TestRemoveIsSwapRemove() {
@@ -287,31 +300,39 @@ func (s *RegistrySuite) TestRangeStops() {
 
 func (s *RegistrySuite) TestAccessGranularity() {
 	start := s.clock.Now()
-	r := s.newRegistry(WithAccessGranularity(time.Second))
+	r := s.newRegistry(WithAccessGranularity(testGranularity))
 	s.factory.On("Make", "a").Return(config()).Once()
 	_, err := r.Get("a")
 	s.Require().NoError(err)
-	created := r.lastAccess("a")
-	s.Equal(s.clock.Now().Sub(start).Nanoseconds(), created)
+	stored := r.lastAccess("a")
+	s.Equal(s.clock.Now().Sub(start).Nanoseconds(), stored)
 
-	s.clock.advance(500 * time.Millisecond)
-	_, err = r.Get("a")
-	s.Require().NoError(err)
-	actual := r.lastAccess("a")
-	s.Equal(created, actual, "access inside the granularity window is not stored")
-
-	s.clock.advance(600 * time.Millisecond)
-	_, err = r.Get("a")
-	s.Require().NoError(err)
-	actual = r.lastAccess("a")
-	s.Equal(s.clock.Now().Sub(start).Nanoseconds(), actual, "access past the window is stored")
+	tests := []struct {
+		name           string
+		advance        time.Duration
+		expectedStored bool
+	}{
+		{name: "inside the window is not stored", advance: testInsideWindow},
+		{name: "past the window is stored", advance: testPastWindow, expectedStored: true},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.clock.advance(tt.advance)
+			_, err := r.Get("a")
+			s.Require().NoError(err)
+			if tt.expectedStored {
+				stored = s.clock.Now().Sub(start).Nanoseconds()
+			}
+			s.Equal(stored, r.lastAccess("a"))
+		})
+	}
 }
 
 func (s *RegistrySuite) TestDefaultRandIsPerRegistry() {
 	s.factory.On("Make", mock.Anything).Return(config())
 	s.onEvict.On("Evict", mock.Anything, mock.Anything).Maybe()
 	var wg sync.WaitGroup
-	for range 2 {
+	for range testRegistries {
 		r := s.newRegistry(WithMaxEntries(testRaceMax))
 		wg.Go(func() {
 			for i := range testRaceKeys {

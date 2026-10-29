@@ -20,7 +20,6 @@ func BenchmarkGetHit(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
-	b.ResetTimer()
 	for b.Loop() {
 		if _, err := r.Get("hot"); err != nil {
 			b.Fatal(err)
@@ -51,7 +50,6 @@ func BenchmarkGetHitParallel(b *testing.B) {
 func BenchmarkGetCreateBounded(b *testing.B) {
 	r := New(benchFactory, WithMaxEntries(benchKeys))
 	b.ReportAllocs()
-	b.ResetTimer()
 	i := 0
 	for b.Loop() {
 		if _, err := r.Get(strconv.Itoa(i)); err != nil {
