@@ -35,8 +35,21 @@ func DefaultGRPCClassifier(ctx context.Context, err error) breaker.Outcome {
 		return breaker.OutcomeIgnored
 	}
 	switch status.Code(err) {
-	case codes.Unavailable, codes.DeadlineExceeded, codes.ResourceExhausted, codes.Internal,
-		codes.Unknown, codes.DataLoss, codes.Aborted, codes.Canceled:
+	case codes.Unavailable:
+		return breaker.OutcomeFailure
+	case codes.DeadlineExceeded:
+		return breaker.OutcomeFailure
+	case codes.ResourceExhausted:
+		return breaker.OutcomeFailure
+	case codes.Internal:
+		return breaker.OutcomeFailure
+	case codes.Unknown:
+		return breaker.OutcomeFailure
+	case codes.DataLoss:
+		return breaker.OutcomeFailure
+	case codes.Aborted:
+		return breaker.OutcomeFailure
+	case codes.Canceled:
 		return breaker.OutcomeFailure
 	default:
 		return breaker.OutcomeSuccess
