@@ -121,55 +121,72 @@ func (s *settings) admit(ctx context.Context, method string, cc *grpc.ClientConn
 	return b, p, err
 }
 
-// NewGRPCUnaryInterceptor returns a client interceptor that records every
-// unary call.
-func NewGRPCUnaryInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, error) {
+// grpcClient holds shared settings for the unary and stream interceptors.
+type grpcClient struct {
+	settings settings
+}
+
+func newGRPCClient(opts ...Option) (*grpcClient, error) {
 	s, err := newSettings(protoGRPC, opts)
 	if err != nil {
 		return nil, err
 	}
-	return func(
-		ctx context.Context,
-		method string,
-		req, reply any,
-		cc *grpc.ClientConn,
-		invoker grpc.UnaryInvoker,
-		callOpts ...grpc.CallOption,
-	) error {
-		b, p, err := s.admit(ctx, method, cc)
-		if err != nil {
-			return err
-		}
-		start := time.Now()
-		err = invoker(ctx, method, req, reply, cc, callOpts...)
-		b.Record(p, classifyGRPC(b, s.grpcClassifier, ctx, err), time.Since(start))
-		return err
-	}, nil
+	return &grpcClient{settings: s}, nil
+}
+
+// NewGRPCUnaryInterceptor returns a client interceptor that records every
+// unary call.
+func NewGRPCUnaryInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, error) {
+	c, err := newGRPCClient(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return c.unary, nil
 }
 
 // NewGRPCStreamInterceptor returns a client interceptor that records the
 // outcome of stream establishment only. Errors on the stream afterwards are
 // not seen by the breaker.
 func NewGRPCStreamInterceptor(opts ...Option) (grpc.StreamClientInterceptor, error) {
-	s, err := newSettings(protoGRPC, opts)
+	c, err := newGRPCClient(opts...)
 	if err != nil {
 		return nil, err
 	}
-	return func(
-		ctx context.Context,
-		desc *grpc.StreamDesc,
-		cc *grpc.ClientConn,
-		method string,
-		streamer grpc.Streamer,
-		callOpts ...grpc.CallOption,
-	) (grpc.ClientStream, error) {
-		b, p, err := s.admit(ctx, method, cc)
-		if err != nil {
-			return nil, err
-		}
-		start := time.Now()
-		stream, err := streamer(ctx, desc, cc, method, callOpts...)
-		b.Record(p, classifyGRPC(b, s.grpcClassifier, ctx, err), time.Since(start))
-		return stream, err
-	}, nil
+	return c.stream, nil
+}
+
+func (c *grpcClient) unary(
+	ctx context.Context,
+	method string,
+	req, reply any,
+	cc *grpc.ClientConn,
+	invoker grpc.UnaryInvoker,
+	callOpts ...grpc.CallOption,
+) error {
+	b, p, err := c.settings.admit(ctx, method, cc)
+	if err != nil {
+		return err
+	}
+	start := time.Now()
+	err = invoker(ctx, method, req, reply, cc, callOpts...)
+	b.Record(p, classifyGRPC(b, c.settings.grpcClassifier, ctx, err), time.Since(start))
+	return err
+}
+
+func (c *grpcClient) stream(
+	ctx context.Context,
+	desc *grpc.StreamDesc,
+	cc *grpc.ClientConn,
+	method string,
+	streamer grpc.Streamer,
+	callOpts ...grpc.CallOption,
+) (grpc.ClientStream, error) {
+	b, p, err := c.settings.admit(ctx, method, cc)
+	if err != nil {
+		return nil, err
+	}
+	start := time.Now()
+	stream, err := streamer(ctx, desc, cc, method, callOpts...)
+	b.Record(p, classifyGRPC(b, c.settings.grpcClassifier, ctx, err), time.Since(start))
+	return stream, err
 }
