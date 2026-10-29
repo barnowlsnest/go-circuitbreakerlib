@@ -2,6 +2,7 @@ package composite
 
 import (
 	"testing"
+	"time"
 
 	"github.com/barnowlsnest/go-datalib/v5/pkg/tree"
 	"github.com/stretchr/testify/mock"
@@ -13,22 +14,11 @@ import (
 const testMaxBreadth = 8
 
 type HierarchySuite struct {
-	cfg *MockPathConfig
 	baseSuite
 }
 
 func TestHierarchySuite(t *testing.T) {
 	suite.Run(t, new(HierarchySuite))
-}
-
-func (s *HierarchySuite) SetupTest() {
-	s.baseSuite.SetupTest()
-	s.cfg = &MockPathConfig{}
-}
-
-func (s *HierarchySuite) TearDownTest() {
-	s.baseSuite.TearDownTest()
-	s.cfg.AssertExpectations(s.T())
 }
 
 func (s *HierarchySuite) model() tree.HierarchyModel {
@@ -40,14 +30,15 @@ func (s *HierarchySuite) model() tree.HierarchyModel {
 	}
 }
 
+func (s *HierarchySuite) hierarchyOpts() []HierarchyOption {
+	return []HierarchyOption{
+		WithComposite(append(s.opts("", s.openChildren(1)), WithEvents(s.events))...),
+		WithLeaf(s.childOpts()...),
+	}
+}
+
 func (s *HierarchySuite) TestBuildsTree() {
-	for _, path := range [][]string{{"payments"}, {"payments", "eu"}, {"payments", "us"}} {
-		s.cfg.On("Composite", path).Return(*s.config("", s.openChildren(1))).Once()
-	}
-	for _, path := range [][]string{{"payments", "eu", "h1"}, {"payments", "eu", "h2"}, {"payments", "us", "h3"}} {
-		s.cfg.On("Leaf", path).Return(s.template("")).Once()
-	}
-	root, err := FromHierarchy(s.model(), testMaxBreadth, s.cfg.Composite, s.cfg.Leaf)
+	root, err := FromHierarchy(s.model(), testMaxBreadth, s.hierarchyOpts()...)
 	s.Require().NoError(err)
 	s.Equal("payments", root.Name())
 	s.ElementsMatch([]string{"eu", "us"}, root.Children())
@@ -72,23 +63,17 @@ func (s *HierarchySuite) TestBuildsTree() {
 	root.RecordLease(l, breaker.OutcomeSuccess, 0)
 }
 
-func (s *HierarchySuite) TestNamesFromConfigWin() {
-	cfg := s.config("custom-root", nil)
-	s.cfg.On("Composite", []string{"payments"}).Return(*cfg).Once()
-	leafCfg := s.template("custom-leaf")
-	s.cfg.On("Leaf", []string{"payments", "h1"}).Return(leafCfg).Once()
+func (s *HierarchySuite) TestNamesFromNodes() {
 	single := tree.HierarchyModel{tree.RootTag: {"payments"}, "payments": {"h1"}}
-	root, err := FromHierarchy(single, testMaxBreadth, s.cfg.Composite, s.cfg.Leaf)
+	root, err := FromHierarchy(single, testMaxBreadth, s.hierarchyOpts()...)
 	s.Require().NoError(err)
-	s.Equal("custom-root", root.Name())
-	s.Equal([]string{"custom-leaf"}, root.Children())
+	s.Equal("payments", root.Name())
+	s.Equal([]string{"h1"}, root.Children())
 }
 
 func (s *HierarchySuite) TestLeafEventsDefaultToComposite() {
-	s.cfg.On("Composite", mock.Anything).Return(*s.config("", s.openChildren(1))).Once()
-	s.cfg.On("Leaf", mock.Anything).Return(s.template("")).Once()
 	single := tree.HierarchyModel{tree.RootTag: {"payments"}, "payments": {"h1"}}
-	root, err := FromHierarchy(single, testMaxBreadth, s.cfg.Composite, s.cfg.Leaf)
+	root, err := FromHierarchy(single, testMaxBreadth, s.hierarchyOpts()...)
 	s.Require().NoError(err)
 	leaf, _ := root.Child("h1")
 	s.trip(leaf.(*breaker.Breaker))
@@ -106,59 +91,41 @@ func (s *HierarchySuite) TestInvalidInput() {
 		"l3":         {"l4"},
 		"l4":         {"leaf"},
 	}
-	bad := s.template("")
-	bad.OpenDuration = -1
-	badComposite := s.config("", nil)
-	badComposite.Parent.Policies = []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}}
 	tests := []struct {
-		expectedErr  error
-		model        tree.HierarchyModel
-		compositeCfg func([]string) Config
-		leafCfg      func([]string) breaker.Config
-		composite    *Config
-		leaf         *breaker.Config
-		name         string
-		maxBreadth   int
+		expectedErr error
+		model       tree.HierarchyModel
+		name        string
+		opts        []HierarchyOption
+		maxBreadth  int
 	}{
 		{name: "cycle", model: cyclic, maxBreadth: testMaxBreadth, expectedErr: ErrInvalidConfig},
 		{name: "no root", model: tree.HierarchyModel{"a": {"b"}}, maxBreadth: testMaxBreadth, expectedErr: ErrInvalidConfig},
 		{name: "breadth exceeded", model: s.model(), maxBreadth: 1, expectedErr: ErrInvalidConfig},
-		{name: "too deep", model: deep, maxBreadth: testMaxBreadth, expectedErr: ErrTooDeep},
+		{name: "too deep", model: deep, maxBreadth: testMaxBreadth, opts: s.hierarchyOpts(), expectedErr: ErrTooDeep},
 		{
-			name:        "nil composite config",
-			model:       s.model(),
-			maxBreadth:  testMaxBreadth,
-			leafCfg:     s.cfg.Leaf,
+			name:       "bad leaf option",
+			model:      s.model(),
+			maxBreadth: testMaxBreadth,
+			opts: []HierarchyOption{
+				WithComposite(s.opts("", s.openChildren(1))...),
+				WithLeaf(breaker.WithOpenDuration(-time.Second)),
+			},
+			expectedErr: breaker.ErrNegativeDuration,
+		},
+		{
+			name:       "bad composite option",
+			model:      s.model(),
+			maxBreadth: testMaxBreadth,
+			opts: []HierarchyOption{
+				WithComposite(WithParent(breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1}))),
+				WithLeaf(s.childOpts()...),
+			},
 			expectedErr: ErrInvalidConfig,
 		},
-		{
-			name:         "nil leaf config",
-			model:        s.model(),
-			maxBreadth:   testMaxBreadth,
-			compositeCfg: s.cfg.Composite,
-			expectedErr:  ErrInvalidConfig,
-		},
-		{name: "bad leaf config", model: s.model(), maxBreadth: testMaxBreadth, leaf: &bad, expectedErr: breaker.ErrNegativeDuration},
-		{name: "bad composite config", model: s.model(), maxBreadth: testMaxBreadth, composite: badComposite, expectedErr: ErrInvalidConfig},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			s.cfg = &MockPathConfig{}
-			compositeCfg, leafCfg := tt.compositeCfg, tt.leafCfg
-			if compositeCfg == nil && leafCfg == nil {
-				compositeCfg, leafCfg = s.cfg.Composite, s.cfg.Leaf
-				composite := *s.config("", s.openChildren(1))
-				if tt.composite != nil {
-					composite = *tt.composite
-				}
-				leaf := s.template("")
-				if tt.leaf != nil {
-					leaf = *tt.leaf
-				}
-				s.cfg.On("Composite", mock.Anything).Return(composite).Maybe()
-				s.cfg.On("Leaf", mock.Anything).Return(leaf).Maybe()
-			}
-			root, err := FromHierarchy(tt.model, tt.maxBreadth, compositeCfg, leafCfg)
+			root, err := FromHierarchy(tt.model, tt.maxBreadth, tt.opts...)
 			s.ErrorIs(err, tt.expectedErr)
 			s.Nil(root)
 		})

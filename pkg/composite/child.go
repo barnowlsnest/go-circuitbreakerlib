@@ -26,27 +26,19 @@ type Child interface {
 	Record(p breaker.Permit, outcome breaker.Outcome, elapsed time.Duration)
 }
 
-// AddChild builds a leaf from Config.ChildTemplate and attaches it. An empty
-// Config.Name from the template becomes id; a nil Config.Events becomes
-// Config.Events of the composite.
+// AddChild builds a leaf from WithChild options and attaches it. The leaf
+// name is id; a nil Events becomes the composite's Events.
 func (c *Composite) AddChild(id string) (*breaker.Breaker, error) {
-	if c.template == nil {
-		return nil, ErrNoChildTemplate
-	}
-	cfg := c.template(id)
-	return c.attachLeaf(id, &cfg)
+	return c.attachLeaf(id, c.childOpts...)
 }
 
-// attachLeaf builds a leaf from cfg, defaulting an empty Name to id and nil
-// Events to the composite's, and attaches it.
-func (c *Composite) attachLeaf(id string, cfg *breaker.Config) (*breaker.Breaker, error) {
-	if cfg.Name == "" {
-		cfg.Name = id
-	}
-	if cfg.Events == nil {
-		cfg.Events = c.events
-	}
-	b, err := breaker.New(cfg)
+// attachLeaf builds a leaf from opts, names it id, fills Events from the
+// composite when unset, and attaches it.
+func (c *Composite) attachLeaf(id string, opts ...breaker.Option) (*breaker.Breaker, error) {
+	leafOpts := make([]breaker.Option, 0, len(opts)+2)
+	leafOpts = append(leafOpts, opts...)
+	leafOpts = append(leafOpts, breaker.WithName(id), breaker.FillEvents(c.events))
+	b, err := breaker.New(leafOpts...)
 	if err != nil {
 		return nil, err
 	}

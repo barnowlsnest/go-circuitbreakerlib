@@ -31,7 +31,6 @@ const (
 type RegistrySuite struct {
 	suite.Suite
 	clock   *testClock
-	factory *MockFactory
 	onEvict *MockOnEvict
 	events  *MockEvents
 }
@@ -42,13 +41,11 @@ func TestRegistrySuite(t *testing.T) {
 
 func (s *RegistrySuite) SetupTest() {
 	s.clock = newTestClock()
-	s.factory = &MockFactory{}
 	s.onEvict = &MockOnEvict{}
 	s.events = &MockEvents{}
 }
 
 func (s *RegistrySuite) TearDownTest() {
-	s.factory.AssertExpectations(s.T())
 	s.onEvict.AssertExpectations(s.T())
 	s.events.AssertExpectations(s.T())
 }
@@ -57,14 +54,14 @@ func newTestRand() *rand.Rand {
 	return rand.New(rand.NewPCG(testSeed1, testSeed2))
 }
 
-// config is a valid breaker config that trips on the first failure.
-func config() breaker.Config {
-	return breaker.Config{Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}}}
+func tripOnFirstFailure() Option {
+	return WithBreaker(breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1}))
 }
 
 func (s *RegistrySuite) newRegistry(opts ...Option) *Registry {
 	s.T().Helper()
-	r, err := New(s.factory.Make, append([]Option{WithClock(s.clock.Now), WithOnEvict(s.onEvict.Evict)}, opts...)...)
+	base := []Option{tripOnFirstFailure(), WithClock(s.clock.Now), WithOnEvict(s.onEvict.Evict)}
+	r, err := New(append(base, opts...)...)
 	s.Require().NoError(err)
 	return r
 }
@@ -72,7 +69,6 @@ func (s *RegistrySuite) newRegistry(opts ...Option) *Registry {
 // mustGet creates key and advances the clock so the next entry is younger.
 func (s *RegistrySuite) mustGet(r *Registry, key string) *breaker.Breaker {
 	s.T().Helper()
-	s.factory.On("Make", key).Return(config()).Once()
 	b, err := r.Get(key)
 	s.Require().NoError(err)
 	s.clock.advance(time.Second)
@@ -81,7 +77,6 @@ func (s *RegistrySuite) mustGet(r *Registry, key string) *breaker.Breaker {
 
 func (s *RegistrySuite) TestGetCreatesOnce() {
 	r := s.newRegistry()
-	s.factory.On("Make", "a").Return(config()).Once()
 	var (
 		wg     sync.WaitGroup
 		actual [testGoroutines]*breaker.Breaker
@@ -99,35 +94,23 @@ func (s *RegistrySuite) TestGetCreatesOnce() {
 	s.Equal("a", actual[0].Name())
 }
 
-func (s *RegistrySuite) TestFactoryNameKept() {
-	r := s.newRegistry()
-	cfg := config()
-	cfg.Name = "custom"
-	s.factory.On("Make", "a").Return(cfg).Once()
+func (s *RegistrySuite) TestNameIsKey() {
+	r := s.newRegistry(WithBreaker(breaker.WithName("ignored"), breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1})))
 	b, err := r.Get("a")
 	s.Require().NoError(err)
-	s.Equal("custom", b.Name())
+	s.Equal("a", b.Name())
 }
 
-func (s *RegistrySuite) TestFactoryErrorNotMemoized() {
-	r := s.newRegistry()
-	bad := config()
-	bad.OpenDuration = -time.Second
-	s.factory.On("Make", "a").Return(bad).Times(2)
+func (s *RegistrySuite) TestBreakerErrorNotMemoized() {
+	r := s.newRegistry(WithBreaker(breaker.WithWindow(breaker.SlidingCountWindow{Size: 0})))
 	for range 2 {
 		b, err := r.Get("a")
-		s.ErrorIs(err, breaker.ErrNegativeDuration)
+		s.ErrorIs(err, breaker.ErrInvalidConfig)
 		s.Nil(b)
 	}
 	s.Equal(0, r.Len())
 	_, ok := r.Lookup("a")
 	s.False(ok)
-}
-
-func (s *RegistrySuite) TestNilFactory() {
-	r, err := New(nil)
-	s.ErrorIs(err, ErrNilFactory)
-	s.Nil(r)
 }
 
 func (s *RegistrySuite) TestInvalidOption() {
@@ -145,7 +128,7 @@ func (s *RegistrySuite) TestInvalidOption() {
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			r, err := New(s.factory.Make, tt.opt)
+			r, err := New(tt.opt)
 			s.ErrorIs(err, ErrInvalidOption)
 			s.Nil(r)
 		})
@@ -155,19 +138,17 @@ func (s *RegistrySuite) TestInvalidOption() {
 func (s *RegistrySuite) TestEventsInjectedWhenNil() {
 	own := &MockEvents{}
 	tests := []struct {
-		cfgEvents      breaker.Events
 		expectedEvents *MockEvents
 		name           string
+		breakerOpts    []breaker.Option
 	}{
-		{name: "nil config events get registry events", cfgEvents: nil, expectedEvents: s.events},
-		{name: "config events are kept", cfgEvents: own, expectedEvents: own},
+		{name: "nil breaker events get registry events", expectedEvents: s.events},
+		{name: "breaker events are kept", breakerOpts: []breaker.Option{breaker.WithEvents(own)}, expectedEvents: own},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			r := s.newRegistry(WithEvents(s.events))
-			cfg := config()
-			cfg.Events = tt.cfgEvents
-			s.factory.On("Make", "a").Return(cfg).Once()
+			opts := append([]breaker.Option{breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1})}, tt.breakerOpts...)
+			r := s.newRegistry(WithEvents(s.events), WithBreaker(opts...))
 			tt.expectedEvents.On("OnCall", mock.Anything).Once()
 			tt.expectedEvents.On("OnStateChange", mock.Anything).Once()
 			b, err := r.Get("a")
@@ -308,7 +289,6 @@ func (s *RegistrySuite) TestRangeStops() {
 func (s *RegistrySuite) TestAccessGranularity() {
 	start := s.clock.Now()
 	r := s.newRegistry(WithAccessGranularity(testGranularity))
-	s.factory.On("Make", "a").Return(config()).Once()
 	_, err := r.Get("a")
 	s.Require().NoError(err)
 	stored := r.lastAccess("a")
@@ -336,7 +316,6 @@ func (s *RegistrySuite) TestAccessGranularity() {
 }
 
 func (s *RegistrySuite) TestDefaultRandIsPerRegistry() {
-	s.factory.On("Make", mock.Anything).Return(config())
 	s.onEvict.On("Evict", mock.Anything, mock.Anything).Maybe()
 	var wg sync.WaitGroup
 	for range testRegistries {

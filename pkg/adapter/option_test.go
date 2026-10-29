@@ -20,7 +20,7 @@ func TestOptionSuite(t *testing.T) {
 }
 
 func (s *OptionSuite) SetupTest() {
-	b, err := breaker.New(&breaker.Config{Name: testName})
+	b, err := breaker.New(breaker.WithName(testName))
 	s.Require().NoError(err)
 	s.breaker = b
 	s.registry = testRegistry(s.T())
@@ -84,5 +84,5 @@ func (s *OptionSuite) TestResolveRegistryError() {
 	b, err := st.resolve("x")
 	s.Nil(b)
 	s.ErrorIs(err, ErrRegistry)
-	s.ErrorIs(err, breaker.ErrNegativeDuration)
+	s.ErrorIs(err, breaker.ErrWindowSize)
 }

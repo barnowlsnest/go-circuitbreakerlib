@@ -14,7 +14,7 @@ type scanResult struct {
 }
 
 // refreshScan recounts open children when the cache is older than
-// Config.ScanInterval. It runs outside every lock; two callers racing
+// ScanInterval. It runs outside every lock; two callers racing
 // simply compute the same answer twice.
 func (c *Composite) refreshScan() {
 	now := c.clock()

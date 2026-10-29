@@ -25,12 +25,14 @@ const (
 var errTransport = errors.New("transport down")
 
 // testBreaker builds a breaker named testName that trips on the first
-// failure; cfg supplies everything else.
-func testBreaker(t *testing.T, cfg *breaker.Config) *breaker.Breaker {
+// failure; opts supply everything else.
+func testBreaker(t *testing.T, opts ...breaker.Option) *breaker.Breaker {
 	t.Helper()
-	cfg.Name = testName
-	cfg.Policies = []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}}
-	b, err := breaker.New(cfg)
+	base := []breaker.Option{
+		breaker.WithName(testName),
+		breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1}),
+	}
+	b, err := breaker.New(append(base, opts...)...)
 	require.NoError(t, err)
 	return b
 }
@@ -43,14 +45,14 @@ func testCanceledContext() context.Context {
 
 func testRegistry(t *testing.T) *registry.Registry {
 	t.Helper()
-	r, err := registry.New(func(string) breaker.Config { return breaker.Config{} })
+	r, err := registry.New()
 	require.NoError(t, err)
 	return r
 }
 
 func testFailingRegistry(t *testing.T) *registry.Registry {
 	t.Helper()
-	r, err := registry.New(func(string) breaker.Config { return breaker.Config{OpenDuration: -1} })
+	r, err := registry.New(registry.WithBreaker(breaker.WithWindow(breaker.SlidingCountWindow{Size: 0})))
 	require.NoError(t, err)
 	return r
 }

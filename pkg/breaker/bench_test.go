@@ -10,7 +10,7 @@ import (
 
 func benchBreaker(b *testing.B, w WindowSpec) *Breaker {
 	b.Helper()
-	br, err := New(&Config{Name: "bench", Window: w})
+	br, err := New(WithName("bench"), WithWindow(w))
 	if err != nil {
 		b.Fatal(err)
 	}

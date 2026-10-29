@@ -26,9 +26,20 @@ type options struct {
 	onEvict      func(key string, b *breaker.Breaker)
 	events       breaker.Events
 	rand         *rand.Rand
+	breakerOpts  []breaker.Option
 	maxEntries   int
 	evictSamples int
 	granularity  time.Duration
+}
+
+// WithBreaker sets the options applied to every breaker Get creates. The
+// breaker's name is always the registry key; FillEvents from WithEvents
+// still applies when these options leave Events unset.
+func WithBreaker(opts ...breaker.Option) Option {
+	return func(o *options) error {
+		o.breakerOpts = opts
+		return nil
+	}
 }
 
 // WithEvents sets the Events given to every breaker whose Config.Events is

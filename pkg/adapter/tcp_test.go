@@ -55,7 +55,11 @@ func (s *TCPSuite) TearDownTest() {
 
 func (s *TCPSuite) newBreaker() *breaker.Breaker {
 	s.T().Helper()
-	return testBreaker(s.T(), &breaker.Config{OpenDuration: testOpenDur, Events: s.events, Clock: s.clock.Now})
+	return testBreaker(s.T(),
+		breaker.WithOpenDuration(testOpenDur),
+		breaker.WithEvents(s.events),
+		breaker.WithClock(s.clock.Now),
+	)
 }
 
 // tracked dials through the mock dialer with I/O tracking on and returns

@@ -55,14 +55,14 @@ func (s *ExecuteSuite) TearDownTest() {
 
 func (s *ExecuteSuite) newBreaker() *Breaker {
 	s.T().Helper()
-	b, err := New(&Config{
-		Name:         testName,
-		Policies:     []Policy{s.policy},
-		OpenDuration: testOpenDuration,
-		Events:       s.events,
-		Classifier:   s.classifier.Classify,
-		Clock:        s.clock.Now,
-	})
+	b, err := New(
+		WithName(testName),
+		WithPolicies(s.policy),
+		WithOpenDuration(testOpenDuration),
+		WithEvents(s.events),
+		WithClassifier(s.classifier.Classify),
+		WithClock(s.clock.Now),
+	)
 	s.Require().NoError(err)
 	return b
 }

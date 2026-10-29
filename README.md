@@ -42,12 +42,12 @@ One breaker per host behind an `http.Client`:
 
 ```go
 // One breaker per host, created on first use.
-hosts, err := registry.New(func(host string) breaker.Config {
-	return breaker.Config{
-		Policies:     []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}},
-		OpenDuration: 30 * time.Second,
-	}
-})
+hosts, err := registry.New(
+	registry.WithBreaker(
+		breaker.WithPolicies(breaker.FailureRate{Threshold: 0.5, MinCalls: 20}),
+		breaker.WithOpenDuration(30*time.Second),
+	),
+)
 if err != nil {
 	panic(err)
 }
@@ -100,12 +100,12 @@ err = call()
 b.Record(p, classify(err), time.Since(start))
 ```
 
-`Execute` and `Do` do that for you, classify with `Config.Classifier`, and
+`Execute` and `Do` do that for you, classify with `WithClassifier`, and
 record in a `defer`, so a panicking function records a failure before the
 panic propagates:
 
 ```go
-b, err := breaker.New(&breaker.Config{Name: "inventory"})
+b, err := breaker.New(breaker.WithName("inventory"))
 if err != nil {
 	panic(err)
 }
@@ -117,7 +117,7 @@ fmt.Println(err, b.State())
 ```
 
 ```go
-b, err := breaker.New(&breaker.Config{Name: "pricing"})
+b, err := breaker.New(breaker.WithName("pricing"))
 if err != nil {
 	panic(err)
 }
@@ -131,31 +131,39 @@ fmt.Println(price, err)
 ### Configuration
 
 ```go
-cfg := breaker.Config{
-	Name:             "payments",
-	Window:           breaker.SlidingTimeWindow{Size: 10 * time.Second, Buckets: 10},
-	Policies:         []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}, breaker.ConsecutiveFailures{Count: 5}},
-	Backoff:          breaker.ExponentialBackoff{Base: 5 * time.Second, Max: time.Minute, Jitter: true},
-	SlowCallDuration: 2 * time.Second,
-	HalfOpenMaxCalls: 1,
+b, err := breaker.New(
+	breaker.WithName("payments"),
+	breaker.WithWindow(breaker.SlidingTimeWindow{Size: 10 * time.Second, Buckets: 10}),
+	breaker.WithPolicies(
+		breaker.FailureRate{Threshold: 0.5, MinCalls: 20},
+		breaker.ConsecutiveFailures{Count: 5},
+	),
+	breaker.WithBackoff(breaker.ExponentialBackoff{Base: 5 * time.Second, Max: time.Minute, Jitter: true}),
+	breaker.WithSlowCallDuration(2*time.Second),
+	breaker.WithHalfOpenMaxCalls(1),
+)
+if err != nil {
+	panic(err)
 }
+fmt.Println(b.Name(), b.State())
+// Output: payments closed
 ```
 
-| Field               | Default                                                     | Meaning                                                                                                                                      |
-|---------------------|-------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| `Name`              | required                                                    | Appears in events, log lines, and `RejectedError`.                                                                                           |
-| `Window`            | `SlidingTimeWindow{Size: 10s, Buckets: 10}`                 | What the policies look at. `SlidingCountWindow{Size: n}` keeps the last `n` calls instead.                                                   |
-| `Policies`          | `FailureRate{0.5, 20}` and `ConsecutiveFailures{5}`         | Any policy that trips opens the breaker. Run after every Closed record and once more on the record that would close a HalfOpen breaker.     |
-| `Backoff`           | `ConstantBackoff(OpenDuration)`                             | How long Open lasts on attempt `n`. `ExponentialBackoff{Base, Max, Jitter}` doubles per attempt.                                             |
-| `OpenDuration`      | `30s`                                                       | The constant backoff when `Backoff` is nil.                                                                                                  |
-| `HalfOpenMaxCalls`  | `1`                                                         | Probe calls in flight at once while HalfOpen. More are rejected with `ErrTooManyProbes`.                                                     |
-| `HalfOpenSuccesses` | `HalfOpenMaxCalls`                                          | Successful probes needed to close.                                                                                                           |
-| `ProbeTimeout`      | `60s`                                                       | A probe not recorded within this time is treated as failed and the breaker opens again. Must be at least your request timeout.               |
-| `SlowCallDuration`  | `0` (off)                                                   | A success slower than this counts as slow, for `SlowCallRate`.                                                                               |
-| `Classifier`        | `DefaultClassifier`                                         | Maps `(ctx, err)` to an outcome for `Execute` and `Do`. The default ignores `context.Canceled` and counts every other error, deadlines included, as a failure. |
-| `Events`            | `NoopEvents`                                                | Observer for transitions, calls, rejections, and hook panics.                                                                                |
-| `ReopenEarly`       | nil                                                         | Checked on every `Allow` while Open; returning true moves to HalfOpen before the backoff elapses. Used by composites.                       |
-| `Clock`             | `time.Now`                                                  | Injected in tests.                                                                                                                           |
+| Option                    | Default                                                     | Meaning                                                                                                                                      |
+|---------------------------|-------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `WithName`                | required                                                    | Appears in events, log lines, and `RejectedError`.                                                                                           |
+| `WithWindow`              | `SlidingTimeWindow{Size: 10s, Buckets: 10}`                 | What the policies look at. `SlidingCountWindow{Size: n}` keeps the last `n` calls instead.                                                   |
+| `WithPolicies`            | `FailureRate{0.5, 20}` and `ConsecutiveFailures{5}`         | Any policy that trips opens the breaker. Run after every Closed record and once more on the record that would close a HalfOpen breaker.     |
+| `WithBackoff`             | `ConstantBackoff(OpenDuration)`                             | How long Open lasts on attempt `n`. `ExponentialBackoff{Base, Max, Jitter}` doubles per attempt.                                             |
+| `WithOpenDuration`        | `30s`                                                       | The constant backoff when `WithBackoff` is unset.                                                                                            |
+| `WithHalfOpenMaxCalls`    | `1`                                                         | Probe calls in flight at once while HalfOpen. More are rejected with `ErrTooManyProbes`.                                                     |
+| `WithHalfOpenSuccesses`   | `HalfOpenMaxCalls`                                          | Successful probes needed to close.                                                                                                           |
+| `WithProbeTimeout`        | `60s`                                                       | A probe not recorded within this time is treated as failed and the breaker opens again. Must be at least your request timeout.               |
+| `WithSlowCallDuration`    | `0` (off)                                                   | A success slower than this counts as slow, for `SlowCallRate`.                                                                               |
+| `WithClassifier`          | `DefaultClassifier`                                         | Maps `(ctx, err)` to an outcome for `Execute` and `Do`. The default ignores `context.Canceled` and counts every other error, deadlines included, as a failure. |
+| `WithEvents`              | `NoopEvents`                                                | Observer for transitions, calls, rejections, and hook panics.                                                                                |
+| `WithReopenEarly`         | nil                                                         | Checked on every `Allow` while Open; returning true moves to HalfOpen before the backoff elapses. Used by composites.                       |
+| `WithClock`               | `time.Now`                                                  | Injected in tests.                                                                                                                           |
 
 `New` returns `ErrInvalidConfig` joined with the specific sentinel
 (`ErrEmptyName`, `ErrNegativeDuration`, `ErrWindowSize`, ...), so
@@ -234,11 +242,11 @@ events, err := hooks.NewLogEvents(log,
 if err != nil {
 	panic(err)
 }
-b, err := breaker.New(&breaker.Config{
-	Name:     "payments",
-	Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
-	Events:   events,
-})
+b, err := breaker.New(
+	breaker.WithName("payments"),
+	breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1}),
+	breaker.WithEvents(events),
+)
 ```
 
 go-logslib writes on the caller's goroutine. Give the logger a
@@ -251,7 +259,7 @@ observers, each under its own `recover`.
 ## Registry
 
 `registry.New` keeps one breaker per key and builds it on first `Get` from
-your factory. A hit is a `sync.Map` lookup with no allocation. With
+`WithBreaker` options. A hit is a `sync.Map` lookup with no allocation. With
 `WithMaxEntries` the registry is bounded: a create on a full registry
 samples a few entries and evicts the least recently used Closed one. An
 Open breaker is evicted only when every sample is Open, so a dependency
@@ -259,12 +267,13 @@ that is down right now is not forgotten.
 
 ```go
 // One breaker per upstream host, at most 100 of them.
-r, err := registry.New(func(host string) breaker.Config {
-	return breaker.Config{
-		Policies:     []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}},
-		OpenDuration: 30 * time.Second,
-	}
-}, registry.WithMaxEntries(100))
+r, err := registry.New(
+	registry.WithBreaker(
+		breaker.WithPolicies(breaker.FailureRate{Threshold: 0.5, MinCalls: 20}),
+		breaker.WithOpenDuration(30*time.Second),
+	),
+	registry.WithMaxEntries(100),
+)
 if err != nil {
 	panic(err)
 }
@@ -296,7 +305,6 @@ if err != nil {
 // Every breaker gets the log hook, and the hook's per-breaker
 // rate-limiter state is dropped when the registry evicts a breaker.
 hosts, err := registry.New(
-	func(host string) breaker.Config { return breaker.Config{} },
 	registry.WithEvents(events),
 	registry.WithMaxEntries(1000),
 	registry.WithOnEvict(func(key string, _ *breaker.Breaker) { events.Forget(key) }),
@@ -306,8 +314,8 @@ if err != nil {
 }
 ```
 
-A factory `Config` that fails validation makes `Get` return the error on
-every call; nothing is stored.
+Breaker options that fail validation make `Get` return the error on every
+call; nothing is stored.
 
 ## Composite
 
@@ -327,16 +335,14 @@ trip, err := composite.OpenChildrenRatio(0.5)
 if err != nil {
 	panic(err)
 }
-dep, err := composite.New(&composite.Config{
-	Name: "search",
-	ChildTemplate: func(instance string) breaker.Config {
-		return breaker.Config{
-			Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: 3}},
-			OpenDuration: 10 * time.Second,
-		}
-	},
-	Trip: trip,
-})
+dep, err := composite.New(
+	composite.WithName("search"),
+	composite.WithTrip(trip),
+	composite.WithChild(
+		breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 3}),
+		breaker.WithOpenDuration(10*time.Second),
+	),
+)
 if err != nil {
 	panic(err)
 }
@@ -398,15 +404,11 @@ if err != nil {
 	panic(err)
 }
 root, err := composite.FromHierarchy(model, 16,
-	func(path []string) composite.Config {
-		return composite.Config{Trip: trip}
-	},
-	func(path []string) breaker.Config {
-		return breaker.Config{
-			Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: 3}},
-			OpenDuration: 10 * time.Second,
-		}
-	},
+	composite.WithComposite(composite.WithTrip(trip)),
+	composite.WithLeaf(
+		breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 3}),
+		breaker.WithOpenDuration(10*time.Second),
+	),
 )
 if err != nil {
 	panic(err)
@@ -443,11 +445,11 @@ not the body read.
 ### gRPC
 
 ```go
-b, err := breaker.New(&breaker.Config{
-	Name:         "inventory",
-	Policies:     []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}},
-	OpenDuration: 30 * time.Second,
-})
+b, err := breaker.New(
+	breaker.WithName("inventory"),
+	breaker.WithPolicies(breaker.FailureRate{Threshold: 0.5, MinCalls: 20}),
+	breaker.WithOpenDuration(30*time.Second),
+)
 if err != nil {
 	panic(err)
 }
@@ -482,12 +484,12 @@ stream interceptor records stream establishment only.
 // One breaker per address. Dial outcomes are always recorded; with
 // WithTCPTrackIO every Read and Write on the returned conn also asks the
 // breaker, so an open breaker fails established connections fast.
-addresses, err := registry.New(func(address string) breaker.Config {
-	return breaker.Config{
-		Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: 5}},
-		OpenDuration: 15 * time.Second,
-	}
-})
+addresses, err := registry.New(
+	registry.WithBreaker(
+		breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 5}),
+		breaker.WithOpenDuration(15*time.Second),
+	),
+)
 if err != nil {
 	panic(err)
 }

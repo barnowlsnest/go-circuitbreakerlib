@@ -55,28 +55,32 @@ func (s *baseSuite) TearDownTest() {
 	s.events.AssertExpectations(s.T())
 }
 
-func (s *baseSuite) template(id string) breaker.Config {
-	return breaker.Config{
-		Name:         id,
-		Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: s.childTrip}},
-		OpenDuration: s.childOpen,
-		Clock:        s.clock.Now,
+func (s *baseSuite) childOpts() []breaker.Option {
+	return []breaker.Option{
+		breaker.WithPolicies(breaker.ConsecutiveFailures{Count: s.childTrip}),
+		breaker.WithOpenDuration(s.childOpen),
+		breaker.WithClock(s.clock.Now),
 	}
 }
 
-func (s *baseSuite) config(name string, trip TripFunc) *Config {
-	return &Config{
-		ChildTemplate: s.template,
-		Trip:          trip,
-		ScanInterval:  testScanInterval,
-		Events:        s.events,
-		Parent: breaker.Config{
-			OpenDuration:     testParentOpen,
-			HalfOpenMaxCalls: testHalfOpenCalls,
-			Clock:            s.clock.Now,
-		},
-		Name: name,
+func (s *baseSuite) opts(name string, trip TripFunc) []Option {
+	out := []Option{
+		WithChild(s.childOpts()...),
+		WithScanInterval(testScanInterval),
+		WithEvents(s.events),
+		WithParent(
+			breaker.WithOpenDuration(testParentOpen),
+			breaker.WithHalfOpenMaxCalls(testHalfOpenCalls),
+			breaker.WithClock(s.clock.Now),
+		),
 	}
+	if name != "" {
+		out = append(out, WithName(name))
+	}
+	if trip != nil {
+		out = append(out, WithTrip(trip))
+	}
+	return out
 }
 
 // openChildren builds an OpenChildren trip that must be valid.
@@ -96,7 +100,7 @@ func (s *baseSuite) mustNew(trip TripFunc, leaves ...string) (c *Composite, byID
 // mustNewNamed builds a composite named name with the given leaves attached to it.
 func (s *baseSuite) mustNewNamed(name string, trip TripFunc, leaves ...string) (c *Composite, byID map[string]*breaker.Breaker) {
 	s.T().Helper()
-	c, err := New(s.config(name, trip))
+	c, err := New(s.opts(name, trip)...)
 	s.Require().NoError(err)
 	byID = make(map[string]*breaker.Breaker, len(leaves))
 	for _, id := range leaves {
@@ -138,36 +142,37 @@ func (s *baseSuite) record(c *Composite, n, failures int) {
 	}
 }
 
-func (s *CompositeSuite) TestNilConfig() {
-	c, err := New(nil)
-	s.ErrorIs(err, ErrInvalidConfig)
-	s.Nil(c)
-}
-
 func (s *CompositeSuite) TestInvalidConfig() {
 	tests := []struct {
 		expectedErr error
-		mutate      func(*Config)
 		name        string
+		opts        []Option
 	}{
 		{
-			name:        "parent policies",
-			mutate:      func(c *Config) { c.Parent.Policies = []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}} },
+			name: "parent policies",
+			opts: append(s.opts(testName, nil), WithParent(
+				breaker.WithOpenDuration(testParentOpen),
+				breaker.WithHalfOpenMaxCalls(testHalfOpenCalls),
+				breaker.WithClock(s.clock.Now),
+				breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1}),
+			)),
 			expectedErr: ErrInvalidConfig,
 		},
-		{name: "empty name", mutate: func(c *Config) { c.Name = "" }, expectedErr: breaker.ErrEmptyName},
-		{name: "negative scan interval", mutate: func(c *Config) { c.ScanInterval = -time.Second }, expectedErr: ErrInvalidConfig},
+		{name: "empty name", opts: s.opts("", nil), expectedErr: breaker.ErrEmptyName},
+		{name: "negative scan interval", opts: append(s.opts(testName, nil), WithScanInterval(-time.Second)), expectedErr: ErrInvalidConfig},
 		{
-			name:        "parent negative duration",
-			mutate:      func(c *Config) { c.Parent.OpenDuration = -time.Second },
+			name: "parent negative duration",
+			opts: append(s.opts(testName, nil), WithParent(
+				breaker.WithOpenDuration(-time.Second),
+				breaker.WithHalfOpenMaxCalls(testHalfOpenCalls),
+				breaker.WithClock(s.clock.Now),
+			)),
 			expectedErr: breaker.ErrNegativeDuration,
 		},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			cfg := s.config(testName, nil)
-			tt.mutate(cfg)
-			c, err := New(cfg)
+			c, err := New(tt.opts...)
 			s.ErrorIs(err, tt.expectedErr)
 			s.Nil(c)
 		})
@@ -175,9 +180,14 @@ func (s *CompositeSuite) TestInvalidConfig() {
 }
 
 func (s *CompositeSuite) TestParentNameFallsBackToParentConfig() {
-	cfg := s.config("", nil)
-	cfg.Parent.Name = "from-parent"
-	c, err := New(cfg)
+	opts := s.opts("", nil)
+	opts = append(opts, WithParent(
+		breaker.WithName("from-parent"),
+		breaker.WithOpenDuration(testParentOpen),
+		breaker.WithHalfOpenMaxCalls(testHalfOpenCalls),
+		breaker.WithClock(s.clock.Now),
+	))
+	c, err := New(opts...)
 	s.Require().NoError(err)
 	s.Equal("from-parent", c.Name())
 }
@@ -197,20 +207,18 @@ func (s *CompositeSuite) TestAddChild() {
 	s.Equal([]string{"a"}, c.Children())
 }
 
-func (s *CompositeSuite) TestAddChildWithoutTemplate() {
-	cfg := s.config(testName, nil)
-	cfg.ChildTemplate = nil
-	c, err := New(cfg)
+func (s *CompositeSuite) TestAddChildDefaults() {
+	c, err := New(WithName(testName), WithEvents(s.events), WithParent(breaker.WithClock(s.clock.Now)))
 	s.Require().NoError(err)
-	_, err = c.AddChild("a")
-	s.ErrorIs(err, ErrNoChildTemplate)
+	b, err := c.AddChild("a")
+	s.Require().NoError(err)
+	s.Equal("a", b.Name())
 }
 
 func (s *CompositeSuite) TestAttachChild() {
 	var nilComposite *Composite
 	var nilBreaker *breaker.Breaker
-	leafCfg := s.template("leaf")
-	leaf, err := breaker.New(&leafCfg)
+	leaf, err := breaker.New(append(s.childOpts(), breaker.WithName("leaf"))...)
 	s.Require().NoError(err)
 	tests := []struct {
 		child       Child
@@ -232,21 +240,20 @@ func (s *CompositeSuite) TestAttachChild() {
 }
 
 func (s *CompositeSuite) TestAttachLeafToManyParents() {
-	leafCfg := s.template("shared")
-	leaf, err := breaker.New(&leafCfg)
+	leaf, err := breaker.New(append(s.childOpts(), breaker.WithName("shared"))...)
 	s.Require().NoError(err)
 	first, _ := s.mustNew(nil)
-	second, err := New(s.config("second", nil))
+	second, err := New(s.opts("second", nil)...)
 	s.Require().NoError(err)
 	s.NoError(first.AttachChild(leaf))
 	s.NoError(second.AttachChild(leaf))
 }
 
 func (s *CompositeSuite) TestAttachTwiceRejected() {
-	sub, err := New(s.config("sub", nil))
+	sub, err := New(s.opts("sub", nil)...)
 	s.Require().NoError(err)
 	first, _ := s.mustNew(nil)
-	second, err := New(s.config("second", nil))
+	second, err := New(s.opts("second", nil)...)
 	s.Require().NoError(err)
 	s.NoError(first.AttachChild(sub))
 	s.ErrorIs(second.AttachChild(sub), ErrAlreadyAttached)
@@ -257,7 +264,7 @@ func (s *CompositeSuite) TestAttachTwiceRejected() {
 
 func (s *CompositeSuite) TestAttachAncestorRejected() {
 	root, _ := s.mustNew(nil)
-	sub, err := New(s.config("sub", nil))
+	sub, err := New(s.opts("sub", nil)...)
 	s.Require().NoError(err)
 	s.Require().NoError(root.AttachChild(sub))
 	s.ErrorIs(sub.AttachChild(root), ErrCycle)
@@ -301,25 +308,38 @@ func (s *CompositeSuite) TestEventsDefaults() {
 	parentEvents := newNoopMockEvents()
 	childEvents := newNoopMockEvents()
 	tests := []struct {
-		parentEvents   breaker.Events
-		childEvents    breaker.Events
 		expectedParent *MockEvents
 		expectedChild  *MockEvents
 		name           string
+		parentOpts     []breaker.Option
+		childOpts      []breaker.Option
 	}{
 		{name: "both nil use composite events", expectedParent: s.events, expectedChild: s.events},
-		{name: "own events kept", parentEvents: parentEvents, childEvents: childEvents, expectedParent: parentEvents, expectedChild: childEvents},
+		{
+			name:           "own events kept",
+			parentOpts:     []breaker.Option{breaker.WithEvents(parentEvents)},
+			childOpts:      []breaker.Option{breaker.WithEvents(childEvents)},
+			expectedParent: parentEvents,
+			expectedChild:  childEvents,
+		},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			cfg := s.config(testName, s.openChildren(1))
-			cfg.Parent.Events = tt.parentEvents
-			cfg.ChildTemplate = func(id string) breaker.Config {
-				t := s.template(id)
-				t.Events = tt.childEvents
-				return t
+			parent := []breaker.Option{
+				breaker.WithOpenDuration(testParentOpen),
+				breaker.WithHalfOpenMaxCalls(testHalfOpenCalls),
+				breaker.WithClock(s.clock.Now),
 			}
-			c, err := New(cfg)
+			parent = append(parent, tt.parentOpts...)
+			child := append(s.childOpts(), tt.childOpts...)
+			c, err := New(
+				WithName(testName),
+				WithTrip(s.openChildren(1)),
+				WithScanInterval(testScanInterval),
+				WithEvents(s.events),
+				WithParent(parent...),
+				WithChild(child...),
+			)
 			s.Require().NoError(err)
 			leaf, err := c.AddChild("a")
 			s.Require().NoError(err)
@@ -467,9 +487,9 @@ func (s *CompositeSuite) TestForceAndReset() {
 
 func (s *CompositeSuite) TestConcurrentCrossAttachNeverCycles() {
 	for range testAttachRounds {
-		a, err := New(s.config("a", nil))
+		a, err := New(s.opts("a", nil)...)
 		s.Require().NoError(err)
-		b, err := New(s.config("b", nil))
+		b, err := New(s.opts("b", nil)...)
 		s.Require().NoError(err)
 		var (
 			wg    sync.WaitGroup

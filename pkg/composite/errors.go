@@ -12,13 +12,12 @@ import (
 var ErrInvalidConfig = breaker.ErrInvalidConfig
 
 var (
+	// ErrInvalidOption means an option value given to New is unusable.
+	ErrInvalidOption = errors.New("composite: invalid option")
 	// ErrDuplicateChild means a child with that name is already attached.
 	ErrDuplicateChild = errors.New("composite: duplicate child")
 	// ErrNilChild means AttachChild was given nil.
 	ErrNilChild = errors.New("composite: nil child")
-	// ErrNoChildTemplate means AddChild was called on a composite built
-	// without Config.ChildTemplate.
-	ErrNoChildTemplate = errors.New("composite: no child template")
 	// ErrAlreadyAttached means the composite already has a parent.
 	ErrAlreadyAttached = errors.New("composite: already attached to a parent")
 	// ErrCycle means the child is the composite itself or one of its

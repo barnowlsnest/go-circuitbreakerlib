@@ -1,7 +1,6 @@
 package composite
 
 import (
-	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -24,22 +23,11 @@ const (
 	hookOnReject        = "on-reject"
 )
 
-// Config configures a Composite.
-type Config struct {
-	Events        breaker.Events
-	ChildTemplate func(id string) breaker.Config
-	Trip          TripFunc
-	Name          string
-	Parent        breaker.Config
-	ScanInterval  time.Duration
-}
-
 // Composite is a tree of breakers behind one parent breaker. It is safe for
 // concurrent use. It implements Child, so composites nest.
 type Composite struct {
 	parent        *breaker.Breaker
 	parentEvents  breaker.Events
-	template      func(id string) breaker.Config
 	trip          TripFunc
 	events        breaker.Events
 	clock         func() time.Time
@@ -49,29 +37,27 @@ type Composite struct {
 	owner         atomic.Pointer[Composite]
 	scan          atomic.Pointer[scanResult]
 	noHealthy     [breaker.StateHalfOpen + 1]*breaker.RejectedError
+	childOpts     []breaker.Option
 	rr            atomic.Int64
 	hookPanics    atomic.Uint64
 	scanInterval  time.Duration
 }
 
 // New builds a composite with no children. It returns ErrInvalidConfig when
-// Parent.Policies is set or ScanInterval is negative, and the parent
+// parent options set Policies or ScanInterval is negative, and the parent
 // breaker's own validation errors otherwise.
-func New(cfg *Config) (*Composite, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("%w: nil Config", ErrInvalidConfig)
-	}
-	if len(cfg.Parent.Policies) > 0 {
-		return nil, fmt.Errorf("%w: Parent.Policies must be empty, Trip is the parent policy", ErrInvalidConfig)
-	}
-	if cfg.ScanInterval < 0 {
-		return nil, fmt.Errorf("%w: ScanInterval %v", ErrInvalidConfig, cfg.ScanInterval)
+func New(opts ...Option) (*Composite, error) {
+	var o options
+	for _, opt := range opts {
+		if err := opt(&o); err != nil {
+			return nil, err
+		}
 	}
 	c := &Composite{
-		template:     cfg.ChildTemplate,
-		trip:         cfg.Trip,
-		events:       cfg.Events,
-		scanInterval: cfg.ScanInterval,
+		trip:         o.trip,
+		events:       o.events,
+		childOpts:    o.childOpts,
+		scanInterval: o.scanInterval,
 	}
 	if c.trip == nil {
 		c.trip = allOf(openChildrenRatio(defaultTripRatio), aggregateFailureRate(defaultTripRate, defaultTripMinCalls))
@@ -79,38 +65,39 @@ func New(cfg *Config) (*Composite, error) {
 	if c.events == nil {
 		c.events = breaker.NewNoopEvents()
 	}
-	if c.scanInterval == 0 {
+	if !o.scanSet {
 		c.scanInterval = DefaultScanInterval
 	}
-	parentCfg := cfg.Parent
-	if cfg.Name != "" {
-		parentCfg.Name = cfg.Name
+	base := make([]breaker.Option, 0, len(o.parentOpts)+2)
+	base = append(base, o.parentOpts...)
+	if o.nameSet {
+		base = append(base, breaker.WithName(o.name))
 	}
-	if parentCfg.Events == nil {
-		parentCfg.Events = c.events
+	base = append(base, breaker.FillEvents(c.events))
+	settings, err := breaker.ResolveSettings(base...)
+	if err != nil {
+		return nil, err
 	}
-	if parentCfg.Clock == nil {
-		parentCfg.Clock = time.Now
-	}
-	if parentCfg.Classifier == nil {
-		parentCfg.Classifier = breaker.DefaultClassifier
-	}
-	c.parentEvents = parentCfg.Events
-	parentCfg.Events = &parentObserver{Events: parentCfg.Events, c: c}
-	parentCfg.Policies = []breaker.Policy{tripPolicy{c: c}}
-	parentCfg.ReopenEarly = c.reopenEarly
-	parent, err := breaker.New(&parentCfg)
+	c.clock = settings.Clock
+	c.classifier = settings.Classifier
+	c.parentEvents = settings.Events
+	parentOpts := make([]breaker.Option, 0, len(base)+3)
+	parentOpts = append(parentOpts, base...)
+	parentOpts = append(parentOpts,
+		breaker.WithEvents(&parentObserver{Events: settings.Events, c: c}),
+		breaker.WithPolicies(tripPolicy{c: c}),
+		breaker.WithReopenEarly(c.reopenEarly),
+	)
+	parent, err := breaker.New(parentOpts...)
 	if err != nil {
 		return nil, err
 	}
 	c.parent = parent
-	c.clock = parentCfg.Clock
-	c.classifier = parentCfg.Classifier
 	empty := make([]Child, 0)
 	c.children.Store(&empty)
 	c.rescan(c.clock())
 	for i := range c.noHealthy {
-		c.noHealthy[i] = &breaker.RejectedError{Err: ErrNoHealthyChildren, Name: parentCfg.Name, State: breaker.State(i)}
+		c.noHealthy[i] = &breaker.RejectedError{Err: ErrNoHealthyChildren, Name: parent.Name(), State: breaker.State(i)}
 	}
 	return c, nil
 }

@@ -9,13 +9,13 @@ import (
 
 const benchKeys = 1024
 
-func benchFactory(string) breaker.Config {
-	return breaker.Config{Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1 << 30}}}
+func benchOpts() Option {
+	return WithBreaker(breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1 << 30}))
 }
 
 // BenchmarkGetHit is the hot path: an existing key. It must not allocate.
 func BenchmarkGetHit(b *testing.B) {
-	r, err := New(benchFactory)
+	r, err := New(benchOpts())
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func BenchmarkGetHit(b *testing.B) {
 // BenchmarkGetHitParallel hits one key from every P at once; the
 // conditional access store keeps the cache line quiet.
 func BenchmarkGetHitParallel(b *testing.B) {
-	r, err := New(benchFactory)
+	r, err := New(benchOpts())
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func BenchmarkGetHitParallel(b *testing.B) {
 // BenchmarkGetCreateBounded floods a bounded registry with unique keys so
 // every call creates and evicts.
 func BenchmarkGetCreateBounded(b *testing.B) {
-	r, err := New(benchFactory, WithMaxEntries(benchKeys))
+	r, err := New(benchOpts(), WithMaxEntries(benchKeys))
 	if err != nil {
 		b.Fatal(err)
 	}

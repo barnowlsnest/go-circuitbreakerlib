@@ -35,9 +35,8 @@ func DefaultClassifier(ctx context.Context, err error) Outcome {
 	return OutcomeFailure
 }
 
-// Config configures a Breaker. Zero values take the documented defaults;
-// negative or out-of-range values make New return ErrInvalidConfig.
-type Config struct {
+// config is the resolved breaker settings after options and defaults.
+type config struct {
 	Events            Events
 	Window            WindowSpec
 	Backoff           Backoff
@@ -53,7 +52,7 @@ type Config struct {
 	HalfOpenSuccesses uint32
 }
 
-func (c *Config) withDefaults() (Config, error) {
+func (c *config) withDefaults() (config, error) {
 	if err := c.validate(); err != nil {
 		return *c, err
 	}
@@ -62,7 +61,7 @@ func (c *Config) withDefaults() (Config, error) {
 	return out, nil
 }
 
-func (c *Config) validate() error {
+func (c *config) validate() error {
 	if c.Name == "" {
 		return errors.Join(ErrInvalidConfig, ErrEmptyName)
 	}
@@ -82,7 +81,7 @@ func (c *Config) validate() error {
 	return nil
 }
 
-func (c *Config) applyDefaults() {
+func (c *config) applyDefaults() {
 	if c.Window == nil {
 		c.Window = SlidingTimeWindow{Size: defaultWindowSize, Buckets: defaultTimeBuckets}
 	}

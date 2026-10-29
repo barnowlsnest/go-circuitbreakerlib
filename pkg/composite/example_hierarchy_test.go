@@ -23,15 +23,11 @@ func ExampleFromHierarchy() {
 		panic(err)
 	}
 	root, err := composite.FromHierarchy(model, 16,
-		func(path []string) composite.Config {
-			return composite.Config{Trip: trip}
-		},
-		func(path []string) breaker.Config {
-			return breaker.Config{
-				Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: 3}},
-				OpenDuration: 10 * time.Second,
-			}
-		},
+		composite.WithComposite(composite.WithTrip(trip)),
+		composite.WithLeaf(
+			breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 3}),
+			breaker.WithOpenDuration(10*time.Second),
+		),
 	)
 	if err != nil {
 		panic(err)

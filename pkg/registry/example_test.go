@@ -14,12 +14,13 @@ import (
 
 func ExampleRegistry() {
 	// One breaker per upstream host, at most 100 of them.
-	r, err := registry.New(func(host string) breaker.Config {
-		return breaker.Config{
-			Policies:     []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}},
-			OpenDuration: 30 * time.Second,
-		}
-	}, registry.WithMaxEntries(100))
+	r, err := registry.New(
+		registry.WithBreaker(
+			breaker.WithPolicies(breaker.FailureRate{Threshold: 0.5, MinCalls: 20}),
+			breaker.WithOpenDuration(30*time.Second),
+		),
+		registry.WithMaxEntries(100),
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -48,7 +49,6 @@ func ExampleWithOnEvict() {
 	// Every breaker gets the log hook, and the hook's per-breaker
 	// rate-limiter state is dropped when the registry evicts a breaker.
 	hosts, err := registry.New(
-		func(host string) breaker.Config { return breaker.Config{} },
 		registry.WithEvents(events),
 		registry.WithMaxEntries(1000),
 		registry.WithOnEvict(func(key string, _ *breaker.Breaker) { events.Forget(key) }),
