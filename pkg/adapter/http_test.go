@@ -20,6 +20,7 @@ const (
 	testBodyDelay   = 50 * time.Millisecond
 	testElapsedMax  = testBodyDelay / 2
 	testStatusParam = "status"
+	testURL         = "http://dep.internal/"
 )
 
 var errTransport = errors.New("transport down")
@@ -145,7 +146,7 @@ func (s *HTTPSuite) TestOutcomeRecorded() {
 			defer s.TearDownTest()
 			rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
 			s.Require().NoError(err)
-			req := s.request(context.Background(), "http://dep.internal/")
+			req := s.request(context.Background(), testURL)
 			var resp *http.Response
 			if tt.status != 0 {
 				resp = &http.Response{StatusCode: tt.status, Body: http.NoBody}
@@ -168,7 +169,7 @@ func (s *HTTPSuite) TestCustomClassifier() {
 		func(context.Context, *http.Response, error) breaker.Outcome { return breaker.OutcomeIgnored },
 	))
 	s.Require().NoError(err)
-	req := s.request(context.Background(), "http://dep.internal/")
+	req := s.request(context.Background(), testURL)
 	s.next.On("RoundTrip", req).Return(nil, errTransport).Once()
 	resp, err := rt.RoundTrip(req) //nolint:bodyclose // the response is nil on error
 	s.Nil(resp)
@@ -178,23 +179,23 @@ func (s *HTTPSuite) TestCustomClassifier() {
 
 func (s *HTTPSuite) TestClassifierPanicIsFailure() {
 	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker), WithHTTPClassifier(
-		func(context.Context, *http.Response, error) breaker.Outcome { panic("classify boom") },
+		func(context.Context, *http.Response, error) breaker.Outcome { panic(testClassifyPanic) },
 	))
 	s.Require().NoError(err)
-	req := s.request(context.Background(), "http://dep.internal/")
+	req := s.request(context.Background(), testURL)
 	s.next.On("RoundTrip", req).Return(&http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil).Once()
 	resp, err := rt.RoundTrip(req)
 	s.Require().NoError(err)
 	s.NoError(resp.Body.Close())
 	s.Equal(uint32(1), s.breaker.Counts().Failures)
-	s.events.AssertCalled(s.T(), "OnHookPanic", hookClassifier, "classify boom")
+	s.events.AssertCalled(s.T(), "OnHookPanic", hookClassifier, testClassifyPanic)
 }
 
 func (s *HTTPSuite) TestRejectedWhenOpen() {
 	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
 	s.Require().NoError(err)
 	s.breaker.ForceOpen()
-	resp, err := rt.RoundTrip(s.request(context.Background(), "http://dep.internal/")) //nolint:bodyclose // the response is nil on error
+	resp, err := rt.RoundTrip(s.request(context.Background(), testURL)) //nolint:bodyclose // the response is nil on error
 	s.Nil(resp)
 	s.ErrorIs(err, breaker.ErrOpen)
 	var re *breaker.RejectedError
@@ -236,7 +237,7 @@ func (s *HTTPSuite) TestRegistryErrorFailsRequest() {
 	reg := testFailingRegistry(s.T())
 	rt, err := NewHTTPRoundTripper(s.next, WithRegistry(reg))
 	s.Require().NoError(err)
-	resp, err := rt.RoundTrip(s.request(context.Background(), "http://dep.internal/")) //nolint:bodyclose // the response is nil on error
+	resp, err := rt.RoundTrip(s.request(context.Background(), testURL)) //nolint:bodyclose // the response is nil on error
 	s.Nil(resp)
 	s.ErrorIs(err, ErrRegistry)
 	s.next.AssertNotCalled(s.T(), "RoundTrip", mock.Anything)
@@ -245,7 +246,7 @@ func (s *HTTPSuite) TestRegistryErrorFailsRequest() {
 func (s *HTTPSuite) TestResponseAndErrorBothSet() {
 	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
 	s.Require().NoError(err)
-	req := s.request(context.Background(), "http://dep.internal/")
+	req := s.request(context.Background(), testURL)
 	s.body.On("Close").Return(nil).Once()
 	s.next.On("RoundTrip", req).Return(&http.Response{StatusCode: http.StatusOK, Body: s.body}, errTransport).Once()
 	resp, err := rt.RoundTrip(req) //nolint:bodyclose // the adapter closed it and returned nil

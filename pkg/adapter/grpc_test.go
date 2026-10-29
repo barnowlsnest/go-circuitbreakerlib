@@ -245,14 +245,14 @@ func (s *GRPCSuite) TestRegistryErrorFailsCall() {
 
 func (s *GRPCSuite) TestClassifierPanicIsFailure() {
 	unary, err := NewGRPCUnaryInterceptor(WithBreaker(s.breaker), WithGRPCClassifier(
-		func(context.Context, error) breaker.Outcome { panic("classify boom") },
+		func(context.Context, error) breaker.Outcome { panic(testClassifyPanic) },
 	))
 	s.Require().NoError(err)
 	s.service.On("UnaryCall", mock.Anything).Return(&grpc_testing.SimpleResponse{}, nil).Once()
 	_, err = s.client(unary, nil).UnaryCall(context.Background(), &grpc_testing.SimpleRequest{})
 	s.NoError(err)
 	s.Equal(uint32(1), s.breaker.Counts().Failures)
-	s.events.AssertCalled(s.T(), "OnHookPanic", hookClassifier, "classify boom")
+	s.events.AssertCalled(s.T(), "OnHookPanic", hookClassifier, testClassifyPanic)
 }
 
 func (s *GRPCSuite) TestRejectedErrorUnwraps() {

@@ -3,7 +3,6 @@ package adapter
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -38,24 +37,12 @@ func DefaultHTTPClassifier(ctx context.Context, resp *http.Response, err error) 
 
 // WithHTTPKey sets the registry key function.
 func WithHTTPKey(fn HTTPKeyFunc) Option {
-	return Option{proto: protoHTTP, apply: func(s *settings) error {
-		if fn == nil {
-			return fmt.Errorf("%w: nil HTTP key", ErrInvalidOption)
-		}
-		s.httpKey = fn
-		return nil
-	}}
+	return funcOption(protoHTTP, "HTTP key", fn == nil, func(s *settings) { s.httpKey = fn })
 }
 
 // WithHTTPClassifier sets the outcome classifier.
 func WithHTTPClassifier(fn HTTPClassifier) Option {
-	return Option{proto: protoHTTP, apply: func(s *settings) error {
-		if fn == nil {
-			return fmt.Errorf("%w: nil HTTP classifier", ErrInvalidOption)
-		}
-		s.httpClassifier = fn
-		return nil
-	}}
+	return funcOption(protoHTTP, "HTTP classifier", fn == nil, func(s *settings) { s.httpClassifier = fn })
 }
 
 // roundTripper is the breaker-protected http.RoundTripper.
@@ -72,12 +59,6 @@ func NewHTTPRoundTripper(next http.RoundTripper, opts ...Option) (http.RoundTrip
 	if err != nil {
 		return nil, err
 	}
-	if s.httpKey == nil {
-		s.httpKey = DefaultHTTPKey
-	}
-	if s.httpClassifier == nil {
-		s.httpClassifier = DefaultHTTPClassifier
-	}
 	if next == nil {
 		next = http.DefaultTransport
 	}
@@ -89,18 +70,14 @@ func NewHTTPRoundTripper(next http.RoundTripper, opts ...Option) (http.RoundTrip
 // http.RoundTripper contract and returns both a response and an error, the
 // body is closed and only the error is returned.
 func (t *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	b, err := t.settings.resolve(t.settings.httpKey(req))
-	if err != nil {
-		return nil, err
-	}
-	p, err := b.Allow()
+	b, p, err := t.settings.acquire(t.settings.httpKey(req))
 	if err != nil {
 		return nil, err
 	}
 	start := time.Now()
 	resp, err := t.next.RoundTrip(req)
 	elapsed := time.Since(start)
-	b.Record(p, classifyHTTP(b, t.settings.httpClassifier, req.Context(), resp, err), elapsed)
+	b.Record(p, classify(b, func() breaker.Outcome { return t.settings.httpClassifier(req.Context(), resp, err) }), elapsed)
 	if err != nil && resp != nil {
 		if resp.Body != nil {
 			_ = resp.Body.Close()
@@ -108,16 +85,4 @@ func (t *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	return resp, err
-}
-
-// classifyHTTP runs fn under recover; a panicking classifier is a failure
-// reported through b's OnHookPanic.
-func classifyHTTP(b *breaker.Breaker, fn HTTPClassifier, ctx context.Context, resp *http.Response, err error) (o breaker.Outcome) {
-	defer func() {
-		if r := recover(); r != nil {
-			o = breaker.OutcomeFailure
-			b.ReportHookPanic(hookClassifier, r)
-		}
-	}()
-	return fn(ctx, resp, err)
 }

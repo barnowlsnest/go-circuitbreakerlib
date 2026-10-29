@@ -9,7 +9,10 @@ import (
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/registry"
 )
 
-const testName = "dep"
+const (
+	testName          = "dep"
+	testClassifyPanic = "classify boom"
+)
 
 type OptionSuite struct {
 	suite.Suite

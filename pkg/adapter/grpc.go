@@ -45,24 +45,12 @@ func DefaultGRPCClassifier(ctx context.Context, err error) breaker.Outcome {
 
 // WithGRPCKey sets the registry key function.
 func WithGRPCKey(fn GRPCKeyFunc) Option {
-	return Option{proto: protoGRPC, apply: func(s *settings) error {
-		if fn == nil {
-			return fmt.Errorf("%w: nil gRPC key", ErrInvalidOption)
-		}
-		s.grpcKey = fn
-		return nil
-	}}
+	return funcOption(protoGRPC, "gRPC key", fn == nil, func(s *settings) { s.grpcKey = fn })
 }
 
 // WithGRPCClassifier sets the outcome classifier.
 func WithGRPCClassifier(fn GRPCClassifier) Option {
-	return Option{proto: protoGRPC, apply: func(s *settings) error {
-		if fn == nil {
-			return fmt.Errorf("%w: nil gRPC classifier", ErrInvalidOption)
-		}
-		s.grpcClassifier = fn
-		return nil
-	}}
+	return funcOption(protoGRPC, "gRPC classifier", fn == nil, func(s *settings) { s.grpcClassifier = fn })
 }
 
 // WithGRPCRejectCode sets the status code of a rejected call. The default,
@@ -95,45 +83,20 @@ func (e *grpcRejectedError) GRPCStatus() *status.Status {
 // holds.
 func (e *grpcRejectedError) Unwrap() error { return e.RejectedError }
 
-func newGRPCSettings(opts []Option) (settings, error) {
-	s, err := newSettings(protoGRPC, opts)
-	if err != nil {
-		return s, err
-	}
-	if s.grpcKey == nil {
-		s.grpcKey = DefaultGRPCKey
-	}
-	if s.grpcClassifier == nil {
-		s.grpcClassifier = DefaultGRPCClassifier
-	}
-	if s.grpcRejectCode == codes.OK {
-		s.grpcRejectCode = DefaultGRPCRejectCode
-	}
-	return s, nil
-}
-
 // admit resolves the breaker for the call and takes a permit. A rejection
 // comes back as a status error with the configured code.
 func (s *settings) admit(ctx context.Context, method string, cc *grpc.ClientConn) (*breaker.Breaker, breaker.Permit, error) {
-	b, err := s.resolve(s.grpcKey(ctx, method, cc))
-	if err != nil {
-		return nil, breaker.Permit{}, err
+	b, p, err := s.acquire(s.grpcKey(ctx, method, cc))
+	if re, ok := asRejected(err); ok {
+		return nil, breaker.Permit{}, &grpcRejectedError{RejectedError: re, code: s.grpcRejectCode}
 	}
-	p, err := b.Allow()
-	if err != nil {
-		var re *breaker.RejectedError
-		if errors.As(err, &re) {
-			return nil, breaker.Permit{}, &grpcRejectedError{RejectedError: re, code: s.grpcRejectCode}
-		}
-		return nil, breaker.Permit{}, err
-	}
-	return b, p, nil
+	return b, p, err
 }
 
 // NewGRPCUnaryInterceptor returns a client interceptor that records every
 // unary call.
 func NewGRPCUnaryInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, error) {
-	s, err := newGRPCSettings(opts)
+	s, err := newSettings(protoGRPC, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +114,7 @@ func NewGRPCUnaryInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, error
 		}
 		start := time.Now()
 		err = invoker(ctx, method, req, reply, cc, callOpts...)
-		b.Record(p, classifyGRPC(b, s.grpcClassifier, ctx, err), time.Since(start))
+		b.Record(p, classify(b, func() breaker.Outcome { return s.grpcClassifier(ctx, err) }), time.Since(start))
 		return err
 	}, nil
 }
@@ -160,7 +123,7 @@ func NewGRPCUnaryInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, error
 // outcome of stream establishment only. Errors on the stream afterwards are
 // not seen by the breaker.
 func NewGRPCStreamInterceptor(opts ...Option) (grpc.StreamClientInterceptor, error) {
-	s, err := newGRPCSettings(opts)
+	s, err := newSettings(protoGRPC, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -178,19 +141,7 @@ func NewGRPCStreamInterceptor(opts ...Option) (grpc.StreamClientInterceptor, err
 		}
 		start := time.Now()
 		stream, err := streamer(ctx, desc, cc, method, callOpts...)
-		b.Record(p, classifyGRPC(b, s.grpcClassifier, ctx, err), time.Since(start))
+		b.Record(p, classify(b, func() breaker.Outcome { return s.grpcClassifier(ctx, err) }), time.Since(start))
 		return stream, err
 	}, nil
-}
-
-// classifyGRPC runs fn under recover; a panicking classifier is a failure
-// reported through b's OnHookPanic.
-func classifyGRPC(b *breaker.Breaker, fn GRPCClassifier, ctx context.Context, err error) (o breaker.Outcome) {
-	defer func() {
-		if r := recover(); r != nil {
-			o = breaker.OutcomeFailure
-			b.ReportHookPanic(hookClassifier, r)
-		}
-	}()
-	return fn(ctx, err)
 }

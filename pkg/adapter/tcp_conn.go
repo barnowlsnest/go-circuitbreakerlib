@@ -44,12 +44,12 @@ func (c *trackedConn) Unwrap() net.Conn { return c.Conn }
 
 // Read implements net.Conn.
 func (c *trackedConn) Read(p []byte) (int, error) {
-	return c.track(func() (int, error) { return c.Conn.Read(p) }, readOp)
+	return track(c, func() (int, error) { return c.Conn.Read(p) }, readOp)
 }
 
 // Write implements net.Conn.
 func (c *trackedConn) Write(p []byte) (int, error) {
-	return c.track(func() (int, error) { return c.Conn.Write(p) }, writeOp)
+	return track(c, func() (int, error) { return c.Conn.Write(p) }, writeOp)
 }
 
 // ReadFrom implements io.ReaderFrom. A conn that supports it is used
@@ -59,7 +59,7 @@ func (c *trackedConn) ReadFrom(r io.Reader) (int64, error) {
 	if !ok {
 		return io.Copy(writerOnly{c}, r)
 	}
-	return c.track64(func() (int64, error) { return rf.ReadFrom(r) }, writeOp)
+	return track(c, func() (int64, error) { return rf.ReadFrom(r) }, writeOp)
 }
 
 // WriteTo implements io.WriterTo. A conn that supports it is used directly
@@ -69,7 +69,7 @@ func (c *trackedConn) WriteTo(w io.Writer) (int64, error) {
 	if !ok {
 		return io.Copy(w, readerOnly{c})
 	}
-	return c.track64(func() (int64, error) { return wt.WriteTo(w) }, readOp)
+	return track(c, func() (int64, error) { return wt.WriteTo(w) }, readOp)
 }
 
 // CloseRead forwards to the conn, or returns errors.ErrUnsupported.
@@ -104,8 +104,8 @@ const (
 	writeOp ioKind = false
 )
 
-// track runs op under one permit and records its outcome.
-func (c *trackedConn) track(op func() (int, error), kind ioKind) (int, error) {
+// track runs op on c under one permit and records its outcome.
+func track[N int | int64](c *trackedConn, op func() (N, error), kind ioKind) (N, error) {
 	p, tracked, err := c.allow(kind)
 	if err != nil {
 		return 0, err
@@ -115,22 +115,9 @@ func (c *trackedConn) track(op func() (int, error), kind ioKind) (int, error) {
 	}
 	start := time.Now()
 	n, err := op()
-	c.breaker.Record(p, classifyIO(p, err), time.Since(start))
-	return n, err
-}
-
-// track64 is track for the 64-bit copy interfaces.
-func (c *trackedConn) track64(op func() (int64, error), kind ioKind) (int64, error) {
-	p, tracked, err := c.allow(kind)
-	if err != nil {
-		return 0, err
+	if outcome := classifyIO(p, err); outcome != breaker.OutcomeIgnored || p.IsProbe() {
+		c.breaker.Record(p, outcome, time.Since(start))
 	}
-	if !tracked {
-		return op()
-	}
-	start := time.Now()
-	n, err := op()
-	c.breaker.Record(p, classifyIO(p, err), time.Since(start))
 	return n, err
 }
 
@@ -151,8 +138,7 @@ func (c *trackedConn) allow(kind ioKind) (p breaker.Permit, tracked bool, err er
 
 // rejectConn wraps a rejection so it satisfies net.Error.
 func rejectConn(err error) error {
-	var re *breaker.RejectedError
-	if errors.As(err, &re) {
+	if re, ok := asRejected(err); ok {
 		return &connRejectedError{RejectedError: re}
 	}
 	return err
