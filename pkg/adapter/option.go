@@ -78,8 +78,8 @@ func WithRegistry(r *registry.Registry) Option {
 	}}
 }
 
-// newSettings applies opts for want and checks that exactly one breaker
-// source is set.
+// newSettings starts from the defaults, applies opts for want, and checks
+// that exactly one breaker source is set.
 func newSettings(want proto, opts []Option) (settings, error) {
 	s := settings{
 		httpKey:        DefaultHTTPKey,

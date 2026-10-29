@@ -104,9 +104,8 @@ func (s *settings) admit(ctx context.Context, method string, cc *grpc.ClientConn
 		if errors.As(err, &re) {
 			return nil, breaker.Permit{}, &grpcRejectedError{RejectedError: re, code: s.grpcRejectCode}
 		}
-		return nil, breaker.Permit{}, err
 	}
-	return b, p, nil
+	return b, p, err
 }
 
 // NewGRPCUnaryInterceptor returns a client interceptor that records every
