@@ -55,15 +55,7 @@ func (s *TCPSuite) TearDownTest() {
 
 func (s *TCPSuite) newBreaker() *breaker.Breaker {
 	s.T().Helper()
-	b, err := breaker.New(&breaker.Config{
-		Name:         testName,
-		Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
-		OpenDuration: testOpenDur,
-		Events:       s.events,
-		Clock:        s.clock.Now,
-	})
-	s.Require().NoError(err)
-	return b
+	return testBreaker(s.T(), &breaker.Config{OpenDuration: testOpenDur, Events: s.events, Clock: s.clock.Now})
 }
 
 // tracked dials through the mock dialer with I/O tracking on and returns
@@ -116,8 +108,7 @@ func (s *TCPSuite) TestOptions() {
 }
 
 func (s *TCPSuite) TestDefaultClassifier() {
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
+	canceled := testCanceledContext()
 	tests := []struct {
 		ctx      context.Context
 		err      error

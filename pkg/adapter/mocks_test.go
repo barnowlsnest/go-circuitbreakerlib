@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"testing"
@@ -15,6 +16,30 @@ import (
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/registry"
 )
+
+const (
+	testName          = "dep"
+	testClassifyPanic = "classify boom"
+)
+
+var errTransport = errors.New("transport down")
+
+// testBreaker builds a breaker named testName that trips on the first
+// failure; cfg supplies everything else.
+func testBreaker(t *testing.T, cfg *breaker.Config) *breaker.Breaker {
+	t.Helper()
+	cfg.Name = testName
+	cfg.Policies = []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}}
+	b, err := breaker.New(cfg)
+	require.NoError(t, err)
+	return b
+}
+
+func testCanceledContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}
 
 func testRegistry(t *testing.T) *registry.Registry {
 	t.Helper()

@@ -55,13 +55,7 @@ func (s *GRPCSuite) TearDownTest() {
 
 func (s *GRPCSuite) newBreaker() *breaker.Breaker {
 	s.T().Helper()
-	b, err := breaker.New(&breaker.Config{
-		Name:     testName,
-		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
-		Events:   s.events,
-	})
-	s.Require().NoError(err)
-	return b
+	return testBreaker(s.T(), &breaker.Config{Events: s.events})
 }
 
 // client dials the in-memory server with the given interceptors.
@@ -107,8 +101,7 @@ func (s *GRPCSuite) TestOptions() {
 }
 
 func (s *GRPCSuite) TestDefaultClassifier() {
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
+	canceled := testCanceledContext()
 	failures := map[codes.Code]bool{
 		codes.Unavailable: true, codes.DeadlineExceeded: true, codes.ResourceExhausted: true, codes.Internal: true,
 		codes.Unknown: true, codes.DataLoss: true, codes.Aborted: true, codes.Canceled: true,

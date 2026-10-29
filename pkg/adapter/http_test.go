@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,8 +22,6 @@ const (
 	testURL         = "http://dep.internal/"
 )
 
-var errTransport = errors.New("transport down")
-
 type HTTPSuite struct {
 	suite.Suite
 	events  *MockEvents
@@ -41,13 +38,7 @@ func (s *HTTPSuite) SetupTest() {
 	s.events = newNoopMockEvents()
 	s.next = &MockRoundTripper{}
 	s.body = &MockBody{}
-	b, err := breaker.New(&breaker.Config{
-		Name:     testName,
-		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
-		Events:   s.events,
-	})
-	s.Require().NoError(err)
-	s.breaker = b
+	s.breaker = testBreaker(s.T(), &breaker.Config{Events: s.events})
 }
 
 func (s *HTTPSuite) TearDownTest() {
@@ -105,8 +96,7 @@ func (s *HTTPSuite) TestNilNextUsesDefaultTransport() {
 }
 
 func (s *HTTPSuite) TestDefaultClassifier() {
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
+	canceled := testCanceledContext()
 	expired, cancelExpired := context.WithDeadline(context.Background(), time.Unix(0, 0))
 	defer cancelExpired()
 	tests := []struct {
