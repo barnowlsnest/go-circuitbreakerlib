@@ -34,10 +34,8 @@ type Registry struct {
 
 // newDefaultRand seeds eviction sampling for one registry. Sampling picks
 // which entries to inspect; it has no security role.
-//
-//nolint:gosec
 func newDefaultRand(seed time.Time) *rand.Rand {
-	return rand.New(rand.NewPCG(uint64(seed.UnixNano()), uint64(seed.Nanosecond())))
+	return rand.New(rand.NewPCG(uint64(seed.UnixNano()), 0))
 }
 
 // New returns a registry that builds breakers with factory. It panics with
