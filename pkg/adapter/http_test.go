@@ -56,6 +56,16 @@ func (s *HTTPSuite) TearDownTest() {
 	s.body.AssertExpectations(s.T())
 }
 
+func (s *HTTPSuite) roundTripFails(rt http.RoundTripper, req *http.Request) error {
+	s.T().Helper()
+	resp, err := rt.RoundTrip(req)
+	if resp != nil {
+		s.NoError(resp.Body.Close())
+	}
+	s.Nil(resp)
+	return err
+}
+
 func (s *HTTPSuite) request(ctx context.Context, url string) *http.Request {
 	s.T().Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
@@ -171,9 +181,7 @@ func (s *HTTPSuite) TestCustomClassifier() {
 	s.Require().NoError(err)
 	req := s.request(context.Background(), testURL)
 	s.next.On("RoundTrip", req).Return(nil, errTransport).Once()
-	resp, err := rt.RoundTrip(req) //nolint:bodyclose // the response is nil on error
-	s.Nil(resp)
-	s.ErrorIs(err, errTransport)
+	s.ErrorIs(s.roundTripFails(rt, req), errTransport)
 	s.Equal(uint32(0), s.breaker.Counts().Total)
 }
 
@@ -195,8 +203,7 @@ func (s *HTTPSuite) TestRejectedWhenOpen() {
 	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
 	s.Require().NoError(err)
 	s.breaker.ForceOpen()
-	resp, err := rt.RoundTrip(s.request(context.Background(), testURL)) //nolint:bodyclose // the response is nil on error
-	s.Nil(resp)
+	err = s.roundTripFails(rt, s.request(context.Background(), testURL))
 	s.ErrorIs(err, breaker.ErrOpen)
 	var re *breaker.RejectedError
 	s.ErrorAs(err, &re)
@@ -237,9 +244,7 @@ func (s *HTTPSuite) TestRegistryErrorFailsRequest() {
 	reg := testFailingRegistry(s.T())
 	rt, err := NewHTTPRoundTripper(s.next, WithRegistry(reg))
 	s.Require().NoError(err)
-	resp, err := rt.RoundTrip(s.request(context.Background(), testURL)) //nolint:bodyclose // the response is nil on error
-	s.Nil(resp)
-	s.ErrorIs(err, ErrRegistry)
+	s.ErrorIs(s.roundTripFails(rt, s.request(context.Background(), testURL)), ErrRegistry)
 	s.next.AssertNotCalled(s.T(), "RoundTrip", mock.Anything)
 }
 
@@ -249,9 +254,7 @@ func (s *HTTPSuite) TestResponseAndErrorBothSet() {
 	req := s.request(context.Background(), testURL)
 	s.body.On("Close").Return(nil).Once()
 	s.next.On("RoundTrip", req).Return(&http.Response{StatusCode: http.StatusOK, Body: s.body}, errTransport).Once()
-	resp, err := rt.RoundTrip(req) //nolint:bodyclose // the adapter closed it and returned nil
-	s.Nil(resp)
-	s.ErrorIs(err, errTransport)
+	s.ErrorIs(s.roundTripFails(rt, req), errTransport)
 	s.Equal(uint32(1), s.breaker.Counts().Failures)
 }
 
