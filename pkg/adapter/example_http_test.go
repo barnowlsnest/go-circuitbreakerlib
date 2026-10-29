@@ -21,7 +21,7 @@ func ExampleNewHTTPRoundTripper() {
 	if err != nil {
 		panic(err)
 	}
-	transport, err := adapter.NewHTTPRoundTripper(nil, adapter.WithRegistry(hosts))
+	transport, err := adapter.NewHTTPRoundTripper(http.DefaultTransport, adapter.WithRegistry(hosts))
 	if err != nil {
 		panic(err)
 	}
