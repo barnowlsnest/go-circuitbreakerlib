@@ -6,10 +6,12 @@ import (
 )
 
 var (
-	// ErrInvalidConfig is joined with a specific sentinel by New when a Config
-	// is unusable, so errors.Is matches both.
+	// ErrInvalidConfig is joined with a specific sentinel by New when an
+	// option resolves to an unusable configuration, so errors.Is matches both.
 	ErrInvalidConfig = errors.New("invalid breaker configuration")
-	// ErrEmptyName is joined with ErrInvalidConfig when Config.Name is empty.
+	// ErrInvalidOption is returned by New when an option value is unusable.
+	ErrInvalidOption = errors.New("breaker: invalid option")
+	// ErrEmptyName is joined with ErrInvalidConfig when Name is empty.
 	ErrEmptyName = errors.New("name is empty")
 	// ErrNegativeDuration is joined with ErrInvalidConfig when a duration is negative.
 	ErrNegativeDuration = errors.New("duration must not be negative")
@@ -17,9 +19,7 @@ var (
 	ErrPolicyThreshold = errors.New("policy threshold must be in (0, 1]")
 	// ErrPolicyCount is joined with ErrInvalidConfig when a policy count or MinCalls is zero.
 	ErrPolicyCount = errors.New("policy count must be positive")
-	// ErrNilConfig is joined with ErrInvalidConfig when New is given a nil Config.
-	ErrNilConfig = errors.New("config is nil")
-	// ErrNilPolicy is joined with ErrInvalidConfig when Config.Policies contains nil.
+	// ErrNilPolicy is joined with ErrInvalidConfig when Policies contains nil.
 	ErrNilPolicy = errors.New("policy is nil")
 	// ErrOpen is the cause of a RejectedError while the breaker is Open.
 	ErrOpen = errors.New("circuit breaker is open")

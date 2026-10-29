@@ -30,15 +30,15 @@ func FuzzStateMachine(f *testing.F) {
 		events := newNoopMockEvents()
 		transitions := 0
 		events.On("OnStateChange", mock.Anything).Run(func(mock.Arguments) { transitions++ })
-		b, err := New(&Config{
-			Name:             "fuzz",
-			Policies:         []Policy{ConsecutiveFailures{Count: 2}},
-			OpenDuration:     fuzzOpenDuration,
-			ProbeTimeout:     fuzzProbeTimeout,
-			HalfOpenMaxCalls: fuzzMaxCalls,
-			Events:           events,
-			Clock:            clock.Now,
-		})
+		b, err := New(
+			WithName("fuzz"),
+			WithPolicies(ConsecutiveFailures{Count: 2}),
+			WithOpenDuration(fuzzOpenDuration),
+			WithProbeTimeout(fuzzProbeTimeout),
+			WithHalfOpenMaxCalls(fuzzMaxCalls),
+			WithEvents(events),
+			WithClock(clock.Now),
+		)
 		require.NoError(t, err)
 		var (
 			live        []Permit
@@ -120,13 +120,13 @@ func (s *InvariantSuite) TestStalePermitRaceAcrossGoroutines() {
 		workers = 8
 		rounds  = 200
 	)
-	b, err := New(&Config{
-		Name:         "race",
-		Policies:     []Policy{ConsecutiveFailures{Count: 1}},
-		OpenDuration: fuzzOpenDuration,
-		Events:       s.events,
-		Clock:        s.clock.Now,
-	})
+	b, err := New(
+		WithName("race"),
+		WithPolicies(ConsecutiveFailures{Count: 1}),
+		WithOpenDuration(fuzzOpenDuration),
+		WithEvents(s.events),
+		WithClock(s.clock.Now),
+	)
 	s.Require().NoError(err)
 	for range rounds {
 		var wg sync.WaitGroup
@@ -166,16 +166,16 @@ func (s *InvariantSuite) TestLeakedSlotDetectedUnderSteadyProbes() {
 		successes = 1000
 		period    = time.Second
 	)
-	b, err := New(&Config{
-		Name:              "leak",
-		Policies:          []Policy{ConsecutiveFailures{Count: 1}},
-		OpenDuration:      fuzzOpenDuration,
-		ProbeTimeout:      testProbeTimeout,
-		HalfOpenMaxCalls:  maxCalls,
-		HalfOpenSuccesses: successes,
-		Events:            s.events,
-		Clock:             s.clock.Now,
-	})
+	b, err := New(
+		WithName("leak"),
+		WithPolicies(ConsecutiveFailures{Count: 1}),
+		WithOpenDuration(fuzzOpenDuration),
+		WithProbeTimeout(testProbeTimeout),
+		WithHalfOpenMaxCalls(maxCalls),
+		WithHalfOpenSuccesses(successes),
+		WithEvents(s.events),
+		WithClock(s.clock.Now),
+	)
 	s.Require().NoError(err)
 	p, err := b.Allow()
 	s.Require().NoError(err)

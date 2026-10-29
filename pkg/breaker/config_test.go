@@ -18,7 +18,7 @@ func TestConfigSuite(t *testing.T) {
 }
 
 func (s *ConfigSuite) TestEmptyName() {
-	_, err := (&Config{}).withDefaults()
+	_, err := (&config{}).withDefaults()
 	s.ErrorIs(err, ErrInvalidConfig)
 	s.ErrorIs(err, ErrEmptyName)
 	s.Equal("invalid breaker configuration\nname is empty", err.Error())
@@ -27,12 +27,12 @@ func (s *ConfigSuite) TestEmptyName() {
 func (s *ConfigSuite) TestInvalid() {
 	cases := []struct {
 		name string
-		cfg  Config
+		cfg  config
 	}{
-		{name: "rate over one", cfg: Config{Name: "x", Policies: []Policy{FailureRate{Threshold: 1.5, MinCalls: 1}}}},
-		{name: "negative open duration", cfg: Config{Name: "x", OpenDuration: -time.Second}},
-		{name: "bad window", cfg: Config{Name: "x", Window: SlidingCountWindow{Size: 0}}},
-		{name: "zero successes with max calls", cfg: Config{Name: "x", HalfOpenMaxCalls: 2, HalfOpenSuccesses: 0, Policies: nil}},
+		{name: "rate over one", cfg: config{Name: "x", Policies: []Policy{FailureRate{Threshold: 1.5, MinCalls: 1}}}},
+		{name: "negative open duration", cfg: config{Name: "x", OpenDuration: -time.Second}},
+		{name: "bad window", cfg: config{Name: "x", Window: SlidingCountWindow{Size: 0}}},
+		{name: "zero successes with max calls", cfg: config{Name: "x", HalfOpenMaxCalls: 2, HalfOpenSuccesses: 0, Policies: nil}},
 	}
 	for i := range cases {
 		tc := &cases[i]
@@ -50,7 +50,7 @@ func (s *ConfigSuite) TestInvalid() {
 }
 
 func (s *ConfigSuite) TestDefaults() {
-	cfg, err := (&Config{Name: "x"}).withDefaults()
+	cfg, err := (&config{Name: "x"}).withDefaults()
 	s.Require().NoError(err)
 	s.Equal(SlidingTimeWindow{Size: 10 * time.Second, Buckets: 10}, cfg.Window)
 	s.Equal([]Policy{FailureRate{Threshold: 0.5, MinCalls: 20}, ConsecutiveFailures{Count: 5}}, cfg.Policies)
@@ -65,7 +65,7 @@ func (s *ConfigSuite) TestDefaults() {
 }
 
 func (s *ConfigSuite) TestSuccessesIndependentOfMaxCalls() {
-	cfg, err := (&Config{Name: "x", HalfOpenMaxCalls: 1, HalfOpenSuccesses: 3}).withDefaults()
+	cfg, err := (&config{Name: "x", HalfOpenMaxCalls: 1, HalfOpenSuccesses: 3}).withDefaults()
 	s.NoError(err)
 	s.Equal(uint32(3), cfg.HalfOpenSuccesses)
 }

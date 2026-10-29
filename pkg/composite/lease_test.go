@@ -275,9 +275,13 @@ func (s *LeaseSuite) TestExecuteNilFunc() {
 }
 
 func (s *LeaseSuite) TestExecuteClassifierPanicIsFailure() {
-	cfg := s.config(testName, nil)
-	cfg.Parent.Classifier = func(context.Context, error) breaker.Outcome { panic("classify boom") }
-	c, err := New(cfg)
+	opts := append(s.opts(testName, nil), WithParent(
+		breaker.WithOpenDuration(testParentOpen),
+		breaker.WithHalfOpenMaxCalls(testHalfOpenCalls),
+		breaker.WithClock(s.clock.Now),
+		breaker.WithClassifier(func(context.Context, error) breaker.Outcome { panic("classify boom") }),
+	))
+	c, err := New(opts...)
 	s.Require().NoError(err)
 	_, err = c.AddChild("a")
 	s.Require().NoError(err)
@@ -354,9 +358,13 @@ func (s *LeaseSuite) TestPickNoHealthyHookPanicSwallowed() {
 }
 
 func (s *LeaseSuite) TestExecuteClassifierHookPanicSwallowed() {
-	cfg := s.config(testName, nil)
-	cfg.Parent.Classifier = func(context.Context, error) breaker.Outcome { panic("classify boom") }
-	c, err := New(cfg)
+	opts := append(s.opts(testName, nil), WithParent(
+		breaker.WithOpenDuration(testParentOpen),
+		breaker.WithHalfOpenMaxCalls(testHalfOpenCalls),
+		breaker.WithClock(s.clock.Now),
+		breaker.WithClassifier(func(context.Context, error) breaker.Outcome { panic("classify boom") }),
+	))
+	c, err := New(opts...)
 	s.Require().NoError(err)
 	_, err = c.AddChild("a")
 	s.Require().NoError(err)

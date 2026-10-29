@@ -9,21 +9,27 @@ import (
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
 
-func ExampleConfig() {
-	cfg := breaker.Config{
-		Name:             "payments",
-		Window:           breaker.SlidingTimeWindow{Size: 10 * time.Second, Buckets: 10},
-		Policies:         []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}, breaker.ConsecutiveFailures{Count: 5}},
-		Backoff:          breaker.ExponentialBackoff{Base: 5 * time.Second, Max: time.Minute, Jitter: true},
-		SlowCallDuration: 2 * time.Second,
-		HalfOpenMaxCalls: 1,
+func ExampleNew() {
+	b, err := breaker.New(
+		breaker.WithName("payments"),
+		breaker.WithWindow(breaker.SlidingTimeWindow{Size: 10 * time.Second, Buckets: 10}),
+		breaker.WithPolicies(
+			breaker.FailureRate{Threshold: 0.5, MinCalls: 20},
+			breaker.ConsecutiveFailures{Count: 5},
+		),
+		breaker.WithBackoff(breaker.ExponentialBackoff{Base: 5 * time.Second, Max: time.Minute, Jitter: true}),
+		breaker.WithSlowCallDuration(2*time.Second),
+		breaker.WithHalfOpenMaxCalls(1),
+	)
+	if err != nil {
+		panic(err)
 	}
-	fmt.Println(cfg.Name, cfg.Policies[0].Name(), cfg.Policies[1].Name())
-	// Output: payments failure-rate consecutive-failures
+	fmt.Println(b.Name(), b.State())
+	// Output: payments closed
 }
 
 func ExampleBreaker_Execute() {
-	b, err := breaker.New(&breaker.Config{Name: "inventory"})
+	b, err := breaker.New(breaker.WithName("inventory"))
 	if err != nil {
 		panic(err)
 	}
@@ -35,7 +41,7 @@ func ExampleBreaker_Execute() {
 }
 
 func ExampleDo() {
-	b, err := breaker.New(&breaker.Config{Name: "pricing"})
+	b, err := breaker.New(breaker.WithName("pricing"))
 	if err != nil {
 		panic(err)
 	}
@@ -65,11 +71,11 @@ func (m *metricsEvents) OnReject(ev breaker.RejectEvent) {
 
 func ExampleEvents() {
 	metrics := &metricsEvents{transitions: map[string]int{}, rejections: map[string]int{}}
-	b, err := breaker.New(&breaker.Config{
-		Name:     "search",
-		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
-		Events:   metrics,
-	})
+	b, err := breaker.New(
+		breaker.WithName("search"),
+		breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1}),
+		breaker.WithEvents(metrics),
+	)
 	if err != nil {
 		panic(err)
 	}

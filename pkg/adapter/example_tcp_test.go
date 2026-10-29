@@ -14,12 +14,12 @@ func ExampleNewTCPDialer() {
 	// One breaker per address. Dial outcomes are always recorded; with
 	// WithTCPTrackIO every Read and Write on the returned conn also asks the
 	// breaker, so an open breaker fails established connections fast.
-	addresses, err := registry.New(func(address string) breaker.Config {
-		return breaker.Config{
-			Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: 5}},
-			OpenDuration: 15 * time.Second,
-		}
-	})
+	addresses, err := registry.New(
+		registry.WithBreaker(
+			breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 5}),
+			breaker.WithOpenDuration(15*time.Second),
+		),
+	)
 	if err != nil {
 		panic(err)
 	}

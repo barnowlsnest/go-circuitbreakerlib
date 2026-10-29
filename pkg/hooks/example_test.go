@@ -26,11 +26,11 @@ func ExampleNewLogEvents() {
 	if err != nil {
 		panic(err)
 	}
-	b, err := breaker.New(&breaker.Config{
-		Name:     "payments",
-		Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}},
-		Events:   events,
-	})
+	b, err := breaker.New(
+		breaker.WithName("payments"),
+		breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1}),
+		breaker.WithEvents(events),
+	)
 	if err != nil {
 		panic(err)
 	}

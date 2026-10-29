@@ -38,20 +38,20 @@ func (s *BreakerSuite) TearDownTest() {
 	s.events.AssertExpectations(s.T())
 }
 
-func (s *BreakerSuite) config() *Config {
-	return &Config{
-		Name:         testName,
-		Policies:     []Policy{ConsecutiveFailures{Count: testTripCount}},
-		OpenDuration: testOpenDuration,
-		ProbeTimeout: testProbeTimeout,
-		Events:       s.events,
-		Clock:        s.clock.Now,
-	}
+func (s *BreakerSuite) opts(extra ...Option) []Option {
+	return append([]Option{
+		WithName(testName),
+		WithPolicies(ConsecutiveFailures{Count: testTripCount}),
+		WithOpenDuration(testOpenDuration),
+		WithProbeTimeout(testProbeTimeout),
+		WithEvents(s.events),
+		WithClock(s.clock.Now),
+	}, extra...)
 }
 
-func (s *BreakerSuite) mustNew(cfg *Config) *Breaker {
+func (s *BreakerSuite) mustNew(extra ...Option) *Breaker {
 	s.T().Helper()
-	b, err := New(cfg)
+	b, err := New(s.opts(extra...)...)
 	s.Require().NoError(err)
 	return b
 }
@@ -88,7 +88,7 @@ func (s *BreakerSuite) halfOpen(b *Breaker) Permit {
 }
 
 func (s *BreakerSuite) TestNewDefaults() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	s.Equal(StateClosed, b.State())
 	s.Equal(uint64(1), b.Snapshot().Epoch)
 	s.Equal(testName, b.Name())
@@ -96,16 +96,16 @@ func (s *BreakerSuite) TestNewDefaults() {
 
 func (s *BreakerSuite) TestNewInvalid() {
 	tests := []struct {
-		cfg         *Config
 		expectedErr error
 		name        string
+		opts        []Option
 	}{
-		{name: "empty name", cfg: &Config{}, expectedErr: ErrEmptyName},
-		{name: "nil config", cfg: nil, expectedErr: ErrNilConfig},
+		{name: "empty name", opts: nil, expectedErr: ErrEmptyName},
+		{name: "empty name option", opts: []Option{WithName("")}, expectedErr: ErrEmptyName},
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			b, err := New(tt.cfg)
+			b, err := New(tt.opts...)
 			s.ErrorIs(err, ErrInvalidConfig)
 			s.ErrorIs(err, tt.expectedErr)
 			s.Nil(b)
@@ -114,14 +114,14 @@ func (s *BreakerSuite) TestNewInvalid() {
 }
 
 func (s *BreakerSuite) TestClosedAllowReturnsPermit() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	p, err := b.Allow()
 	s.NoError(err)
 	s.False(p.IsProbe())
 }
 
 func (s *BreakerSuite) TestTripsOnConsecutiveFailures() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	s.trip(b)
 	s.events.AssertCalled(s.T(), "OnStateChange", mock.MatchedBy(func(ev StateChangeEvent) bool {
 		return ev.From == StateClosed && ev.To == StateOpen && ev.Reason == "consecutive-failures" && ev.Attempt == 0
@@ -140,7 +140,7 @@ func (s *BreakerSuite) TestTripsOnConsecutiveFailures() {
 }
 
 func (s *BreakerSuite) TestOpenToHalfOpenAfterBackoff() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	s.trip(b)
 	s.clock.advance(testOpenDuration - time.Second)
 	_, err := b.Allow()
@@ -158,9 +158,7 @@ func (s *BreakerSuite) TestOpenToHalfOpenAfterBackoff() {
 func (s *BreakerSuite) TestBackoffCalledOncePerOpen() {
 	backoff := &MockBackoff{}
 	backoff.On("Delay", 0).Return(testOpenDuration).Once()
-	cfg := s.config()
-	cfg.Backoff = backoff
-	b := s.mustNew(cfg)
+	b := s.mustNew(WithBackoff(backoff))
 	s.trip(b)
 	for range testRejections {
 		_, err := b.Allow()
@@ -170,7 +168,7 @@ func (s *BreakerSuite) TestBackoffCalledOncePerOpen() {
 }
 
 func (s *BreakerSuite) TestHalfOpenProbeLimit() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	s.halfOpen(b)
 	_, err1 := b.Allow()
 	_, err2 := b.Allow()
@@ -183,10 +181,7 @@ func (s *BreakerSuite) TestHalfOpenProbeLimit() {
 }
 
 func (s *BreakerSuite) TestHalfOpenSuccessCloses() {
-	cfg := s.config()
-	cfg.HalfOpenMaxCalls = 2
-	cfg.HalfOpenSuccesses = 2
-	b := s.mustNew(cfg)
+	b := s.mustNew(WithHalfOpenMaxCalls(2), WithHalfOpenSuccesses(2))
 	p1 := s.halfOpen(b)
 	p2, err := b.Allow()
 	s.Require().NoError(err)
@@ -207,9 +202,7 @@ func (s *BreakerSuite) TestHalfOpenFailureReopens() {
 	backoff := &MockBackoff{}
 	backoff.On("Delay", 0).Return(testOpenDuration).Once()
 	backoff.On("Delay", 1).Return(2 * testOpenDuration).Once()
-	cfg := s.config()
-	cfg.Backoff = backoff
-	b := s.mustNew(cfg)
+	b := s.mustNew(WithBackoff(backoff))
 	p := s.halfOpen(b)
 	b.Record(p, OutcomeFailure, 0)
 	s.Equal(StateOpen, b.State())
@@ -246,9 +239,7 @@ func (s *BreakerSuite) TestBackoffPanicFallsBackAndIsReported() {
 				backoff.On("Delay", 0).Return(testOpenDuration).Once()
 			}
 			backoff.On("Delay", tt.panicAttempt).Panic("backoff boom").Once()
-			cfg := s.config()
-			cfg.Backoff = backoff
-			b := s.mustNew(cfg)
+			b := s.mustNew(WithBackoff(backoff))
 			s.NotPanics(func() { tt.open(b) })
 			snap := b.Snapshot()
 			s.Equal(StateOpen, snap.State)
@@ -262,7 +253,7 @@ func (s *BreakerSuite) TestBackoffPanicFallsBackAndIsReported() {
 }
 
 func (s *BreakerSuite) TestStalePermitDiscarded() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	stale, err := b.Allow()
 	s.Require().NoError(err)
 	s.halfOpen(b)
@@ -277,7 +268,7 @@ func (s *BreakerSuite) TestStalePermitDiscarded() {
 }
 
 func (s *BreakerSuite) TestRecordAfterResetDiscarded() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	p, err := b.Allow()
 	s.Require().NoError(err)
 	b.Reset()
@@ -286,7 +277,7 @@ func (s *BreakerSuite) TestRecordAfterResetDiscarded() {
 }
 
 func (s *BreakerSuite) TestIgnoredReleasesProbeSlot() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	p := s.halfOpen(b)
 	calls := s.onCallCount()
 	b.Record(p, OutcomeIgnored, 0)
@@ -296,7 +287,7 @@ func (s *BreakerSuite) TestIgnoredReleasesProbeSlot() {
 }
 
 func (s *BreakerSuite) TestIgnoredInClosedIsLockFreeAndUncounted() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	p, err := b.Allow()
 	s.Require().NoError(err)
 	b.Record(p, OutcomeIgnored, 0)
@@ -305,10 +296,7 @@ func (s *BreakerSuite) TestIgnoredInClosedIsLockFreeAndUncounted() {
 }
 
 func (s *BreakerSuite) TestTwoSlotRelease() {
-	cfg := s.config()
-	cfg.HalfOpenMaxCalls = 2
-	cfg.HalfOpenSuccesses = 1
-	b := s.mustNew(cfg)
+	b := s.mustNew(WithHalfOpenMaxCalls(2), WithHalfOpenSuccesses(1))
 	p1 := s.halfOpen(b)
 	p2, err := b.Allow()
 	s.Require().NoError(err)
@@ -319,7 +307,7 @@ func (s *BreakerSuite) TestTwoSlotRelease() {
 }
 
 func (s *BreakerSuite) TestForceOpenPins() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	b.ForceOpen()
 	s.Equal(StateOpen, b.State())
 	s.True(b.Snapshot().Forced)
@@ -330,7 +318,7 @@ func (s *BreakerSuite) TestForceOpenPins() {
 }
 
 func (s *BreakerSuite) TestForceClosePinsAndRecords() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	b.ForceClose()
 	for range testRejections {
 		p, err := b.Allow()
@@ -347,9 +335,7 @@ func (s *BreakerSuite) TestForceClosePinsAndRecords() {
 
 func (s *BreakerSuite) TestReopenEarly() {
 	calls := 0
-	cfg := s.config()
-	cfg.ReopenEarly = func() bool { calls++; return true }
-	b := s.mustNew(cfg)
+	b := s.mustNew(WithReopenEarly(func() bool { calls++; return true }))
 	s.trip(b)
 	p, err := b.Allow()
 	s.NoError(err)
@@ -365,9 +351,7 @@ func (s *BreakerSuite) TestReopenEarly() {
 }
 
 func (s *BreakerSuite) TestReopenEarlyPanicIsFalse() {
-	cfg := s.config()
-	cfg.ReopenEarly = func() bool { panic("boom") }
-	b := s.mustNew(cfg)
+	b := s.mustNew(WithReopenEarly(func() bool { panic("boom") }))
 	s.trip(b)
 	_, err := b.Allow()
 	s.ErrorIs(err, ErrOpen)
@@ -377,10 +361,10 @@ func (s *BreakerSuite) TestReopenEarlyPanicIsFalse() {
 
 func (s *BreakerSuite) TestClosingRecordPolicyTrips() {
 	const slow = 10 * time.Millisecond
-	cfg := s.config()
-	cfg.Policies = []Policy{ConsecutiveFailures{Count: testTripCount}, SlowCallRate{Threshold: 0.5, MinCalls: 1}}
-	cfg.SlowCallDuration = slow
-	b := s.mustNew(cfg)
+	b := s.mustNew(
+		WithPolicies(ConsecutiveFailures{Count: testTripCount}, SlowCallRate{Threshold: 0.5, MinCalls: 1}),
+		WithSlowCallDuration(slow),
+	)
 	p := s.halfOpen(b)
 	b.Record(p, OutcomeSuccess, 2*slow)
 	s.Equal(StateOpen, b.State())
@@ -397,9 +381,7 @@ func (s *BreakerSuite) TestPolicyPanicCountsFailureAndFiresHook() {
 	policy := &MockPolicy{}
 	policy.On("ShouldTrip", mock.Anything).Panic("policy boom")
 	policy.On("Name").Return("mock").Maybe()
-	cfg := s.config()
-	cfg.Policies = []Policy{policy}
-	b := s.mustNew(cfg)
+	b := s.mustNew(WithPolicies(policy))
 	p, err := b.Allow()
 	s.Require().NoError(err)
 	s.NotPanics(func() { b.Record(p, OutcomeSuccess, 0) })
@@ -424,9 +406,7 @@ func (s *BreakerSuite) TestHookPanicSwallowedAndReported() {
 			if tt.reportPanics {
 				report.Panic("report boom")
 			}
-			cfg := s.config()
-			cfg.Events = events
-			b := s.mustNew(cfg)
+			b := s.mustNew(WithEvents(events))
 			p, err := b.Allow()
 			s.Require().NoError(err)
 			s.NotPanics(func() { b.Record(p, OutcomeSuccess, 0) })
@@ -457,9 +437,7 @@ func (s *BreakerSuite) TestEveryHookPanicReportedByName() {
 			events.On(tt.method, mock.Anything).Panic("hook boom").Once()
 			events.On("OnStateChange", mock.Anything).Maybe()
 			events.On("OnHookPanic", tt.expectedHook, "hook boom").Once()
-			cfg := s.config()
-			cfg.Events = events
-			b := s.mustNew(cfg)
+			b := s.mustNew(WithEvents(events))
 			s.NotPanics(func() { tt.trigger(b) })
 			s.Equal(uint64(1), b.HookPanics())
 			events.AssertExpectations(s.T())
@@ -484,9 +462,7 @@ func (s *BreakerSuite) TestReportHookPanic() {
 			if tt.hookPanics {
 				call.Panic("hook boom")
 			}
-			cfg := s.config()
-			cfg.Events = events
-			b := s.mustNew(cfg)
+			b := s.mustNew(WithEvents(events))
 			s.NotPanics(func() { b.ReportHookPanic(name, "classify boom") })
 			s.Equal(tt.expectedCount, b.HookPanics())
 			events.AssertExpectations(s.T())
@@ -495,7 +471,7 @@ func (s *BreakerSuite) TestReportHookPanic() {
 }
 
 func (s *BreakerSuite) TestLazyStateView() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	s.trip(b)
 	epoch := b.Snapshot().Epoch
 	s.clock.advance(testOpenDuration)
@@ -511,7 +487,7 @@ func (s *BreakerSuite) TestLazyStateView() {
 }
 
 func (s *BreakerSuite) TestProbeTimeoutReopens() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	s.halfOpen(b)
 	s.clock.advance(testProbeTimeout + time.Millisecond)
 	_, err := b.Allow()
@@ -526,14 +502,14 @@ func (s *BreakerSuite) TestProbeTimeoutReopens() {
 }
 
 func (s *BreakerSuite) TestProbeAdmittedAtBaseInstantIsOccupied() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	s.halfOpen(b)
 	_, err := b.Allow()
 	s.ErrorIs(err, ErrTooManyProbes)
 }
 
 func (s *BreakerSuite) TestOpenToHalfOpenCAS() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	s.trip(b)
 	s.clock.advance(testOpenDuration)
 	var (
@@ -561,7 +537,7 @@ func (s *BreakerSuite) TestOpenToHalfOpenCAS() {
 }
 
 func (s *BreakerSuite) TestStaleWaiterDoesNotSkipBackoff() {
-	b := s.mustNew(s.config())
+	b := s.mustNew()
 	s.trip(b)
 	s.clock.advance(testOpenDuration)
 	now := s.clock.Now()

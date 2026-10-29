@@ -505,31 +505,34 @@ Provided in-core:
 - `ExponentialBackoff{Base time.Duration, Max time.Duration, Jitter bool}` —
   small local implementation (jitter via `math/rand/v2`, no syscalls).
 
-### Config
+### Options
 
 ```go
-type Config struct {
-    Policies          []Policy         // default FailureRate{0.5,20} + ConsecutiveFailures{5}
-    Window            WindowSpec       // SlidingCountWindow or SlidingTimeWindow; default SlidingTimeWindow{10s, 10}
-    Backoff           Backoff          // overrides OpenDuration when set
-    Events            Events           // default NoopEvents
-    Name              string           // required; used in events and logs
-    Classifier        Classifier       // default DefaultClassifier
-    Clock             func() time.Time // default time.Now; tests inject
-    ReopenEarly       func() bool      // default nil; see Policies
-    SlowCallDuration  time.Duration    // 0 = disabled
-    OpenDuration      time.Duration    // default 30s; used when Backoff is nil
-    ProbeTimeout      time.Duration    // default 60s
-    HalfOpenMaxCalls  uint32           // default 1
-    HalfOpenSuccesses uint32           // default = HalfOpenMaxCalls
-}
+type Option func(*options) error
+
+func New(opts ...Option) (*Breaker, error)
+
+func WithName(name string) Option                          // required; used in events and logs
+func WithPolicies(policies ...Policy) Option               // default FailureRate{0.5,20} + ConsecutiveFailures{5}
+func WithWindow(w WindowSpec) Option                       // default SlidingTimeWindow{10s, 10}
+func WithBackoff(b Backoff) Option                         // overrides OpenDuration when set
+func WithEvents(ev Events) Option                          // default NoopEvents
+func FillEvents(ev Events) Option                          // sets Events only when WithEvents was unused
+func WithClassifier(fn Classifier) Option                  // default DefaultClassifier
+func WithClock(fn func() time.Time) Option                 // default time.Now; tests inject
+func WithReopenEarly(fn func() bool) Option                // default nil; see Policies
+func WithSlowCallDuration(d time.Duration) Option          // 0 = disabled
+func WithOpenDuration(d time.Duration) Option              // default 30s; used when Backoff is unset
+func WithProbeTimeout(d time.Duration) Option              // default 60s
+func WithHalfOpenMaxCalls(n uint32) Option                 // default 1
+func WithHalfOpenSuccesses(n uint32) Option                // default = HalfOpenMaxCalls
 ```
 
-`New(cfg *Config) (*Breaker, error)` validates and applies defaults. Zero
-means default; negative or out-of-range (rate > 1) is an error. Validation
-errors are `errors.Join(ErrInvalidConfig, ErrEmptyName)` and similar, so
-`errors.Is` matches both sentinels and no prefix is duplicated in the
-message.
+`New` validates and applies defaults. Zero means default; negative or
+out-of-range (rate > 1) is an error. Validation errors are
+`errors.Join(ErrInvalidConfig, ErrEmptyName)` and similar, so `errors.Is`
+matches both sentinels and no prefix is duplicated in the message.
+`ErrInvalidOption` covers nil option values such as a nil clock.
 
 ### API
 
@@ -712,10 +715,10 @@ order; each delegate is independently recovered.
 
 ```go
 type Registry struct { ... }
-type Factory func(key string) breaker.Config
 
-func New(factory Factory, opts ...Option) (*Registry, error)
-func WithEvents(ev breaker.Events) Option                        // injected when cfg.Events is nil
+func New(opts ...Option) (*Registry, error)
+func WithBreaker(opts ...breaker.Option) Option                  // shared options for every Get; name is the key
+func WithEvents(ev breaker.Events) Option                        // FillEvents when WithBreaker leaves Events unset
 func WithMaxEntries(n int) Option                                // 0 = unbounded
 func WithOnEvict(fn func(key string, b *breaker.Breaker)) Option // e.g. LogEvents.Forget
 func WithEvictSamples(n int) Option                              // default 8
@@ -741,23 +744,24 @@ random entries and evicts the oldest **Closed** one among them; an Open or
 HalfOpen breaker is evicted only if every sample is Open or HalfOpen, so the
 registry does not forget a dependency that is currently down. Cost per
 create is O(samples), not O(N), so unique-key floods cannot turn creates
-into full scans. `OnEvict` fires after removal. Factory errors are returned
-on every `Get` and not memoized; a factory that fails is a programming error
-and the adapter fails the request (below).
+into full scans. `OnEvict` fires after removal. Breaker option errors are
+returned on every `Get` and not memoized; a misconfigured `WithBreaker` is a
+programming error and the adapter fails the request (below).
 
 ## `pkg/composite`
 
 ```go
 const MaxDepth = 4
 
-type Config struct {
-    ChildTemplate func(id string) breaker.Config
-    Trip          TripFunc       // default AllOf(OpenChildrenRatio(0.5), AggregateFailureRate(0.5, 50))
-    ScanInterval  time.Duration  // default 10ms; min age of the cached open-children count
-    Events        breaker.Events // for parent + children if their cfg.Events nil
-    Parent        breaker.Config // window, backoff, half-open fields only; Policies must be empty
-    Name          string
-}
+type Option func(*options) error
+
+func New(opts ...Option) (*Composite, error)
+func WithName(name string) Option
+func WithEvents(ev breaker.Events) Option                 // for parent + children if their Events unset
+func WithTrip(trip TripFunc) Option                       // default AllOf(OpenChildrenRatio(0.5), AggregateFailureRate(0.5, 50))
+func WithScanInterval(d time.Duration) Option             // default 10ms
+func WithParent(opts ...breaker.Option) Option            // window, backoff, half-open fields; Policies forbidden
+func WithChild(opts ...breaker.Option) Option             // shared options for every AddChild; name is the id
 
 // TripFunc decides whether the parent opens. Evaluated on every parent Record
 // and on every parent Allow while Open.
@@ -770,8 +774,8 @@ func AllOf(fns ...TripFunc) (TripFunc, error)                           // ErrIn
 func AnyOf(fns ...TripFunc) (TripFunc, error)                           // ErrInvalidConfig on a nil fn
 ```
 
-`New` returns `ErrInvalidConfig` if `Parent.Policies` is non-empty, because
-the parent's policy is the `Trip` adapter.
+`New` returns `ErrInvalidConfig` if `WithParent` includes `WithPolicies`,
+because the parent's policy is the `Trip` adapter.
 
 ### Children
 
@@ -789,7 +793,7 @@ child, `Allow` is the parent's `Allow` and `Record` the parent's `Record`;
 leaf selection happens through `Pick` (below).
 
 - `AddChild(id string) (*breaker.Breaker, error)` creates a child from
-  `ChildTemplate`; `AttachChild(c Child) error` adds an existing child,
+  `WithChild` options; `AttachChild(c Child) error` adds an existing child,
   including another `*Composite`. A `*Composite` can have one parent;
   attaching it twice returns `ErrAlreadyAttached` (shared sub-composites
   would double-record and break depth accounting). `RemoveChild(id string)`,
@@ -892,14 +896,15 @@ hooks defined for this purpose:
 ```go
 // FromHierarchy builds nested composites from a tree.HierarchyModel.
 // Internal nodes become *Composite, leaves become *breaker.Breaker.
-// path is the chain of node values from the root,
-// e.g. ["payments", "eu-west", "10.0.1.5:443"].
+// Names come from node values.
 func FromHierarchy(
     model tree.HierarchyModel,
     maxBreadth int,
-    compositeCfg func(path []string) Config,
-    leafCfg func(path []string) breaker.Config,
+    opts ...HierarchyOption,
 ) (*Composite, error)
+
+func WithComposite(opts ...Option) HierarchyOption
+func WithLeaf(opts ...breaker.Option) HierarchyOption
 ```
 
 `tree.Hierarchy` validates the model (single root, no cycles, breadth limit)

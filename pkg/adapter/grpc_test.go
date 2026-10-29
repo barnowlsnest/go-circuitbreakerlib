@@ -55,7 +55,7 @@ func (s *GRPCSuite) TearDownTest() {
 
 func (s *GRPCSuite) newBreaker() *breaker.Breaker {
 	s.T().Helper()
-	return testBreaker(s.T(), &breaker.Config{Events: s.events})
+	return testBreaker(s.T(), breaker.WithEvents(s.events))
 }
 
 // client dials the in-memory server with the given interceptors.

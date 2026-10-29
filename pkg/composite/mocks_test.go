@@ -71,16 +71,3 @@ func newTestClock() *testClock {
 
 func (c *testClock) Now() time.Time          { return c.now }
 func (c *testClock) advance(d time.Duration) { c.now = c.now.Add(d) }
-
-// MockPathConfig is a testify mock of the FromHierarchy config callbacks.
-type MockPathConfig struct {
-	mock.Mock
-}
-
-func (m *MockPathConfig) Composite(path []string) Config {
-	return m.Called(path).Get(0).(Config)
-}
-
-func (m *MockPathConfig) Leaf(path []string) breaker.Config {
-	return m.Called(path).Get(0).(breaker.Config)
-}

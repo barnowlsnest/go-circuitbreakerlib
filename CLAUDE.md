@@ -22,8 +22,8 @@ imports a package listed below it.
 |-----------------|----------------------------------------------------------------------------------------------|
 | `pkg/breaker`   | Core state machine: `Breaker`, `Permit`, windows, policies, backoff, `Events`. Stdlib only.  |
 | `pkg/hooks`     | `LogEvents` (go-logslib + x/time/rate) and `MultiEvents`.                                    |
-| `pkg/registry`  | Keyed breakers with sampled eviction.                                                        |
-| `pkg/composite` | Parent/child breakers, `Lease`, `FromHierarchy` (go-datalib `tree`).                         |
+| `pkg/registry`  | Keyed breakers with sampled eviction; `WithBreaker` for shared leaf options.                 |
+| `pkg/composite` | Parent/child breakers, `Lease`, `FromHierarchy`; `WithChild` / `WithParent`.                 |
 | `pkg/adapter`   | One file per protocol: `http.go`, `grpc.go`, `tcp.go`; shared `option.go`.                   |
 
 ## Commands
@@ -69,12 +69,21 @@ hand-order fields against it. One field per line; no size comments.
 
 `_test.go` files are exempt from `dupl`, `funlen`, `goconst`, `gocyclo`, `gosec`.
 
+### Constructors
+
+Constructors take `...Option` / `With*` helpers (`breaker.New`,
+`registry.New`, `composite.New`, `hooks.NewLogEvents`, adapter constructors).
+Do not reintroduce a public `Config` struct for construction. Shared leaf
+options use `registry.WithBreaker` and `composite.WithChild`; names come from
+the registry key or child id.
+
 ### Errors
 
-Sentinels live in each package's `errors.go`. Config validation joins
-`ErrInvalidConfig` with a specific sentinel via `errors.Join`, so
-`errors.Is` matches both. Rejections are `*breaker.RejectedError`, which
-unwraps to `ErrOpen` or `ErrTooManyProbes`. Wrap rather than reformat.
+Sentinels live in each package's `errors.go`. Option / config validation
+joins `ErrInvalidConfig` (or package `ErrInvalidOption`) with a specific
+sentinel via `errors.Join`, so `errors.Is` matches both. Rejections are
+`*breaker.RejectedError`, which unwraps to `ErrOpen` or `ErrTooManyProbes`.
+Wrap rather than reformat.
 
 ### Contexts
 

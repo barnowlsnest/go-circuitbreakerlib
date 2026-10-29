@@ -38,7 +38,7 @@ func (s *HTTPSuite) SetupTest() {
 	s.events = newNoopMockEvents()
 	s.next = &MockRoundTripper{}
 	s.body = &MockBody{}
-	s.breaker = testBreaker(s.T(), &breaker.Config{Events: s.events})
+	s.breaker = testBreaker(s.T(), breaker.WithEvents(s.events))
 }
 
 func (s *HTTPSuite) TearDownTest() {

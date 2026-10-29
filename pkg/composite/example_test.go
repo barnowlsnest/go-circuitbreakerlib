@@ -16,16 +16,14 @@ func ExampleComposite() {
 	if err != nil {
 		panic(err)
 	}
-	dep, err := composite.New(&composite.Config{
-		Name: "search",
-		ChildTemplate: func(instance string) breaker.Config {
-			return breaker.Config{
-				Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: 3}},
-				OpenDuration: 10 * time.Second,
-			}
-		},
-		Trip: trip,
-	})
+	dep, err := composite.New(
+		composite.WithName("search"),
+		composite.WithTrip(trip),
+		composite.WithChild(
+			breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 3}),
+			breaker.WithOpenDuration(10*time.Second),
+		),
+	)
 	if err != nil {
 		panic(err)
 	}

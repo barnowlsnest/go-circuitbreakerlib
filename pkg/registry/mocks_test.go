@@ -8,15 +8,6 @@ import (
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
 
-// MockFactory is a testify mock of Factory.
-type MockFactory struct {
-	mock.Mock
-}
-
-func (m *MockFactory) Make(key string) breaker.Config {
-	return m.Called(key).Get(0).(breaker.Config)
-}
-
 // MockOnEvict is a testify mock of the WithOnEvict callback.
 type MockOnEvict struct {
 	mock.Mock

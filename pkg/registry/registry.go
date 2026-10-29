@@ -9,10 +9,6 @@ import (
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
 
-// Factory builds the Config for a key. A Config with an empty Name gets the
-// key as its name; a nil Events gets the registry's WithEvents value.
-type Factory func(key string) breaker.Config
-
 // entry is one registered breaker. index is its position in Registry.entries
 // and is only read or written under Registry.mu.
 type entry struct {
@@ -25,7 +21,6 @@ type entry struct {
 // Registry maps keys to breakers. It is safe for concurrent use.
 type Registry struct {
 	start   time.Time
-	factory Factory
 	m       sync.Map
 	entries []*entry
 	options
@@ -38,13 +33,9 @@ func newDefaultRand(seed time.Time) *rand.Rand {
 	return rand.New(rand.NewPCG(uint64(seed.UnixNano()), 0))
 }
 
-// New returns a registry that builds breakers with factory. It returns
-// ErrNilFactory when factory is nil and ErrInvalidOption on a bad option
-// value.
-func New(factory Factory, opts ...Option) (*Registry, error) {
-	if factory == nil {
-		return nil, ErrNilFactory
-	}
+// New returns a registry that builds breakers with WithBreaker options. It
+// returns ErrInvalidOption on a bad option value.
+func New(opts ...Option) (*Registry, error) {
 	o := options{
 		clock:        time.Now,
 		onEvict:      func(string, *breaker.Breaker) {},
@@ -60,12 +51,11 @@ func New(factory Factory, opts ...Option) (*Registry, error) {
 	if o.rand == nil {
 		o.rand = newDefaultRand(start)
 	}
-	return &Registry{factory: factory, start: start, options: o}, nil
+	return &Registry{start: start, options: o}, nil
 }
 
-// Get returns the breaker for key, creating it on first use. A factory
-// Config that fails validation returns the error on every call and stores
-// nothing.
+// Get returns the breaker for key, creating it on first use. Breaker options
+// that fail validation return the error on every call and store nothing.
 func (r *Registry) Get(key string) (*breaker.Breaker, error) {
 	if e, ok := r.load(key); ok {
 		r.touch(e)
@@ -156,14 +146,13 @@ func (r *Registry) createLocked(key string) (e, victim *entry, err error) {
 		r.touch(e)
 		return e, nil, nil
 	}
-	cfg := r.factory(key)
-	if cfg.Name == "" {
-		cfg.Name = key
+	opts := make([]breaker.Option, 0, len(r.breakerOpts)+2)
+	opts = append(opts, r.breakerOpts...)
+	opts = append(opts, breaker.WithName(key))
+	if r.events != nil {
+		opts = append(opts, breaker.FillEvents(r.events))
 	}
-	if cfg.Events == nil {
-		cfg.Events = r.events
-	}
-	b, err := breaker.New(&cfg)
+	b, err := breaker.New(opts...)
 	if err != nil {
 		return nil, nil, err
 	}

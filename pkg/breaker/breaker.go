@@ -1,7 +1,6 @@
 package breaker
 
 import (
-	"errors"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -32,7 +31,7 @@ type Breaker struct {
 	halfOpenRejected *RejectedError
 	openRejected     *RejectedError
 	probeAdmitted    []int64
-	cfg              Config
+	cfg              config
 	packed           atomic.Uint64
 	reopenAt         atomic.Int64
 	hookPanics       atomic.Uint64
@@ -43,12 +42,14 @@ type Breaker struct {
 	forced           atomic.Bool
 }
 
-// New validates cfg, applies defaults, and returns a Closed breaker. cfg
-// is copied; the breaker keeps no reference to it.
-func New(cfg *Config) (*Breaker, error) {
-	if cfg == nil {
-		return nil, errors.Join(ErrInvalidConfig, ErrNilConfig)
+// New applies opts, validates, applies defaults, and returns a Closed
+// breaker.
+func New(opts ...Option) (*Breaker, error) {
+	o, err := applyOptions(opts...)
+	if err != nil {
+		return nil, err
 	}
+	cfg := o.toConfig()
 	c, err := cfg.withDefaults()
 	if err != nil {
 		return nil, err
