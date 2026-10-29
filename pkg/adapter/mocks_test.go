@@ -16,16 +16,14 @@ import (
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/registry"
 )
 
-// newTestRegistry builds a registry of default breakers.
-func newTestRegistry(t *testing.T) *registry.Registry {
+func testRegistry(t *testing.T) *registry.Registry {
 	t.Helper()
 	r, err := registry.New(func(string) breaker.Config { return breaker.Config{} })
 	require.NoError(t, err)
 	return r
 }
 
-// newFailingRegistry builds a registry whose factory config never validates.
-func newFailingRegistry(t *testing.T) *registry.Registry {
+func testFailingRegistry(t *testing.T) *registry.Registry {
 	t.Helper()
 	r, err := registry.New(func(string) breaker.Config { return breaker.Config{OpenDuration: -1} })
 	require.NoError(t, err)
