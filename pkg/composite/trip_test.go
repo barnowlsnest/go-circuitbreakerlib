@@ -15,15 +15,6 @@ const (
 	tripMinCalls = 10
 )
 
-// MockTrip is a testify mock of TripFunc.
-type MockTrip struct {
-	mock.Mock
-}
-
-func (m *MockTrip) Trip(open, total int, agg breaker.Counts) bool {
-	return m.Called(open, total, agg).Bool(0)
-}
-
 type TripSuite struct {
 	suite.Suite
 }

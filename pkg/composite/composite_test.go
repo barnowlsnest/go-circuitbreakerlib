@@ -82,7 +82,13 @@ func (s *baseSuite) config(name string, trip TripFunc) Config {
 // mustNew builds a composite with n leaves named a, b, c, ...
 func (s *baseSuite) mustNew(trip TripFunc, leaves ...string) (c *Composite, byID map[string]*breaker.Breaker) {
 	s.T().Helper()
-	c, err := New(s.config(testName, trip))
+	return s.mustNewNamed(testName, trip, leaves...)
+}
+
+// mustNewNamed builds a composite named name with the given leaves attached to it.
+func (s *baseSuite) mustNewNamed(name string, trip TripFunc, leaves ...string) (c *Composite, byID map[string]*breaker.Breaker) {
+	s.T().Helper()
+	c, err := New(s.config(name, trip))
 	s.Require().NoError(err)
 	byID = make(map[string]*breaker.Breaker, len(leaves))
 	for _, id := range leaves {

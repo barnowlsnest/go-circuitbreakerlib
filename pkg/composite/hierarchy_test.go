@@ -106,11 +106,17 @@ func (s *HierarchySuite) TestInvalidInput() {
 		"l3":         {"l4"},
 		"l4":         {"leaf"},
 	}
+	bad := s.template("")
+	bad.OpenDuration = -1
+	badComposite := s.config("", nil)
+	badComposite.Parent.Policies = []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}}
 	tests := []struct {
 		expectedErr  error
 		model        tree.HierarchyModel
 		compositeCfg func([]string) Config
 		leafCfg      func([]string) breaker.Config
+		composite    *Config
+		leaf         *breaker.Config
 		name         string
 		maxBreadth   int
 	}{
@@ -132,13 +138,9 @@ func (s *HierarchySuite) TestInvalidInput() {
 			compositeCfg: s.cfg.Composite,
 			expectedErr:  ErrInvalidConfig,
 		},
-		{name: "bad leaf config", model: s.model(), maxBreadth: testMaxBreadth, expectedErr: breaker.ErrNegativeDuration},
-		{name: "bad composite config", model: s.model(), maxBreadth: testMaxBreadth, expectedErr: ErrInvalidConfig},
+		{name: "bad leaf config", model: s.model(), maxBreadth: testMaxBreadth, leaf: &bad, expectedErr: breaker.ErrNegativeDuration},
+		{name: "bad composite config", model: s.model(), maxBreadth: testMaxBreadth, composite: &badComposite, expectedErr: ErrInvalidConfig},
 	}
-	bad := s.template("")
-	bad.OpenDuration = -1
-	badComposite := s.config("", nil)
-	badComposite.Parent.Policies = []breaker.Policy{breaker.ConsecutiveFailures{Count: 1}}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
 			s.cfg = &MockPathConfig{}
@@ -146,12 +148,12 @@ func (s *HierarchySuite) TestInvalidInput() {
 			if compositeCfg == nil && leafCfg == nil {
 				compositeCfg, leafCfg = s.cfg.Composite, s.cfg.Leaf
 				composite := s.config("", OpenChildren(1))
-				if tt.name == "bad composite config" {
-					composite = badComposite
+				if tt.composite != nil {
+					composite = *tt.composite
 				}
 				leaf := s.template("")
-				if tt.name == "bad leaf config" {
-					leaf = bad
+				if tt.leaf != nil {
+					leaf = *tt.leaf
 				}
 				s.cfg.On("Composite", mock.Anything).Return(composite).Maybe()
 				s.cfg.On("Leaf", mock.Anything).Return(leaf).Maybe()

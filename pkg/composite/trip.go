@@ -44,19 +44,18 @@ func AggregateFailureRate(threshold float64, minCalls uint32) TripFunc {
 	if threshold < 0 || threshold > 1 {
 		panic(fmt.Errorf("%w: AggregateFailureRate %v, want 0..1", breaker.ErrInvalidConfig, threshold))
 	}
-	return func(_, _ int, agg breaker.Counts) bool {
-		return agg.Total > 0 && agg.Total >= minCalls && float64(agg.Failures)/float64(agg.Total) >= threshold
-	}
+	rate := breaker.FailureRate{Threshold: threshold, MinCalls: minCalls}
+	return func(_, _ int, agg breaker.Counts) bool { return rate.ShouldTrip(agg) }
 }
 
 // AllOf trips when every fn trips, stopping at the first that does not.
 // With no fns it never trips. It panics on a nil fn.
 func AllOf(fns ...TripFunc) TripFunc {
 	rejectNil(fns)
+	if len(fns) == 0 {
+		return func(int, int, breaker.Counts) bool { return false }
+	}
 	return func(open, total int, agg breaker.Counts) bool {
-		if len(fns) == 0 {
-			return false
-		}
 		for _, fn := range fns {
 			if !fn(open, total, agg) {
 				return false

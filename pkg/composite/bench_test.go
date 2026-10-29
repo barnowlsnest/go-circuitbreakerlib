@@ -33,7 +33,6 @@ func benchComposite(b *testing.B) *Composite {
 func BenchmarkPickRecord10Children(b *testing.B) {
 	c := benchComposite(b)
 	b.ReportAllocs()
-	b.ResetTimer()
 	for b.Loop() {
 		l, err := c.Pick()
 		if err != nil {

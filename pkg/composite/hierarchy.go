@@ -45,7 +45,7 @@ func buildComposite(
 	compositeCfg func(path []string) Config,
 	leafCfg func(path []string) breaker.Config,
 ) (*Composite, error) {
-	path := append(slices.Clone(parentPath), n.Val())
+	path := slices.Concat(parentPath, []string{n.Val()})
 	cfg := compositeCfg(slices.Clone(path))
 	if cfg.Name == "" {
 		cfg.Name = n.Val()
@@ -55,29 +55,17 @@ func buildComposite(
 		return nil, err
 	}
 	for _, child := range n.ChildrenIter() {
-		var member Child
-		if child.HasChildren() {
-			sub, err := buildComposite(child, path, compositeCfg, leafCfg)
-			if err != nil {
+		if !child.HasChildren() {
+			if _, err := c.attachLeaf(child.Val(), leafCfg(slices.Concat(path, []string{child.Val()}))); err != nil {
 				return nil, err
 			}
-			member = sub
-		} else {
-			leafPath := append(slices.Clone(path), child.Val())
-			lc := leafCfg(leafPath)
-			if lc.Name == "" {
-				lc.Name = child.Val()
-			}
-			if lc.Events == nil {
-				lc.Events = c.events
-			}
-			leaf, err := breaker.New(&lc)
-			if err != nil {
-				return nil, err
-			}
-			member = leaf
+			continue
 		}
-		if err := c.AttachChild(member); err != nil {
+		sub, err := buildComposite(child, path, compositeCfg, leafCfg)
+		if err != nil {
+			return nil, err
+		}
+		if err := c.AttachChild(sub); err != nil {
 			return nil, err
 		}
 	}
