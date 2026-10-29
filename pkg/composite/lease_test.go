@@ -41,20 +41,6 @@ func (s *LeaseSuite) TearDownTest() {
 	s.fn.AssertExpectations(s.T())
 }
 
-// sub builds a child composite named id with the given leaves attached to it.
-func (s *LeaseSuite) sub(id string, leaves ...string) (c *Composite, byID map[string]*breaker.Breaker) {
-	s.T().Helper()
-	c, err := New(s.config(id, OpenChildren(1)))
-	s.Require().NoError(err)
-	byID = make(map[string]*breaker.Breaker, len(leaves))
-	for _, leaf := range leaves {
-		b, err := c.AddChild(leaf)
-		s.Require().NoError(err)
-		byID[leaf] = b
-	}
-	return c, byID
-}
-
 func (s *LeaseSuite) TestPickRoundRobinSkipsOpen() {
 	c, leaves := s.mustNew(nil, "a", "b", "c")
 	s.forceOpen(leaves["b"])
@@ -137,8 +123,8 @@ func (s *LeaseSuite) TestZeroLeaseIsInert() {
 
 func (s *LeaseSuite) TestNestedRecordWalksPath() {
 	root, _ := s.mustNew(nil)
-	mid, _ := s.sub("mid")
-	leafOwner, leaves := s.sub("inner", "leaf")
+	mid, _ := s.mustNewNamed("mid", s.openChildren(1))
+	leafOwner, leaves := s.mustNewNamed("inner", s.openChildren(1), "leaf")
 	s.Require().NoError(mid.AttachChild(leafOwner))
 	s.Require().NoError(root.AttachChild(mid))
 
@@ -156,8 +142,8 @@ func (s *LeaseSuite) TestNestedRecordWalksPath() {
 
 func (s *LeaseSuite) TestNestedPickReleasesIntermediatePermit() {
 	root, _ := s.mustNew(nil)
-	first, firstLeaves := s.sub("first", "a", "b")
-	second, secondLeaves := s.sub("second", "c", "d")
+	first, firstLeaves := s.mustNewNamed("first", s.openChildren(1), "a", "b")
+	second, secondLeaves := s.mustNewNamed("second", s.openChildren(1), "c", "d")
 	s.Require().NoError(root.AttachChild(first))
 	s.Require().NoError(root.AttachChild(second))
 	for _, leaves := range []map[string]*breaker.Breaker{firstLeaves, secondLeaves} {
@@ -188,8 +174,8 @@ func (s *LeaseSuite) TestNestedPickReleasesIntermediatePermit() {
 
 func (s *LeaseSuite) TestNestedPickSkipsOpenSubComposite() {
 	root, _ := s.mustNew(nil)
-	first, _ := s.sub("first", "a")
-	second, _ := s.sub("second", "b")
+	first, _ := s.mustNewNamed("first", s.openChildren(1), "a")
+	second, _ := s.mustNewNamed("second", s.openChildren(1), "b")
 	s.Require().NoError(root.AttachChild(first))
 	s.Require().NoError(root.AttachChild(second))
 	first.ForceOpen()
@@ -203,10 +189,10 @@ func (s *LeaseSuite) TestNestedPickSkipsOpenSubComposite() {
 
 func (s *LeaseSuite) TestTooDeep() {
 	root, _ := s.mustNew(nil)
-	level2, _ := s.sub("level2")
-	level3, _ := s.sub("level3")
-	level4, _ := s.sub("level4")
-	withLeaves, _ := s.sub("with-leaves", "x")
+	level2, _ := s.mustNewNamed("level2", s.openChildren(1))
+	level3, _ := s.mustNewNamed("level3", s.openChildren(1))
+	level4, _ := s.mustNewNamed("level4", s.openChildren(1))
+	withLeaves, _ := s.mustNewNamed("with-leaves", s.openChildren(1), "x")
 	s.Require().NoError(root.AttachChild(level2))
 	s.Require().NoError(level2.AttachChild(level3))
 	s.Require().NoError(level3.AttachChild(level4))

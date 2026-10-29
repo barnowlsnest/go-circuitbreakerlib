@@ -11,7 +11,7 @@ const benchChildren = 10
 
 func benchComposite(b *testing.B) *Composite {
 	b.Helper()
-	c, err := New(Config{
+	c, err := New(&Config{
 		Name: "bench",
 		ChildTemplate: func(string) breaker.Config {
 			return breaker.Config{Policies: []breaker.Policy{breaker.ConsecutiveFailures{Count: 1 << 30}}}
@@ -33,7 +33,6 @@ func benchComposite(b *testing.B) *Composite {
 func BenchmarkPickRecord10Children(b *testing.B) {
 	c := benchComposite(b)
 	b.ReportAllocs()
-	b.ResetTimer()
 	for b.Loop() {
 		l, err := c.Pick()
 		if err != nil {

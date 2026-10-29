@@ -2,7 +2,6 @@ package composite
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -50,7 +49,6 @@ type Composite struct {
 	owner         atomic.Pointer[Composite]
 	scan          atomic.Pointer[scanResult]
 	noHealthy     [breaker.StateHalfOpen + 1]*breaker.RejectedError
-	mu            sync.Mutex
 	rr            atomic.Int64
 	hookPanics    atomic.Uint64
 	scanInterval  time.Duration
@@ -59,9 +57,10 @@ type Composite struct {
 // New builds a composite with no children. It returns ErrInvalidConfig when
 // Parent.Policies is set or ScanInterval is negative, and the parent
 // breaker's own validation errors otherwise.
-//
-//nolint:gocritic // Config is passed by value like breaker.Config.
-func New(cfg Config) (*Composite, error) {
+func New(cfg *Config) (*Composite, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("%w: nil Config", ErrInvalidConfig)
+	}
 	if len(cfg.Parent.Policies) > 0 {
 		return nil, fmt.Errorf("%w: Parent.Policies must be empty, Trip is the parent policy", ErrInvalidConfig)
 	}
@@ -75,7 +74,7 @@ func New(cfg Config) (*Composite, error) {
 		scanInterval: cfg.ScanInterval,
 	}
 	if c.trip == nil {
-		c.trip = AllOf(OpenChildrenRatio(defaultTripRatio), AggregateFailureRate(defaultTripRate, defaultTripMinCalls))
+		c.trip = allOf(openChildrenRatio(defaultTripRatio), aggregateFailureRate(defaultTripRate, defaultTripMinCalls))
 	}
 	if c.events == nil {
 		c.events = breaker.NewNoopEvents()
@@ -97,7 +96,7 @@ func New(cfg Config) (*Composite, error) {
 		parentCfg.Classifier = breaker.DefaultClassifier
 	}
 	c.parentEvents = parentCfg.Events
-	parentCfg.Events = &parentObserver{c: c, next: parentCfg.Events}
+	parentCfg.Events = &parentObserver{Events: parentCfg.Events, c: c}
 	parentCfg.Policies = []breaker.Policy{tripPolicy{c: c}}
 	parentCfg.ReopenEarly = c.reopenEarly
 	parent, err := breaker.New(&parentCfg)
@@ -109,6 +108,7 @@ func New(cfg Config) (*Composite, error) {
 	c.classifier = parentCfg.Classifier
 	empty := make([]Child, 0)
 	c.children.Store(&empty)
+	c.rescan(c.clock())
 	for i := range c.noHealthy {
 		c.noHealthy[i] = &breaker.RejectedError{Err: ErrNoHealthyChildren, Name: parentCfg.Name, State: breaker.State(i)}
 	}
@@ -195,21 +195,15 @@ func (tripPolicy) Name() string { return tripPolicyName }
 // parentObserver sits in front of the user's Events on the parent only and
 // drops the frozen aggregate when the parent closes.
 type parentObserver struct {
-	c    *Composite
-	next breaker.Events
+	breaker.Events
+	c *Composite
 }
 
 func (o *parentObserver) OnStateChange(ev breaker.StateChangeEvent) {
 	if ev.To == breaker.StateClosed {
 		o.c.tripAggregate.Store(nil)
 	}
-	o.next.OnStateChange(ev)
-}
-
-func (o *parentObserver) OnCall(ev breaker.CallEvent)     { o.next.OnCall(ev) }
-func (o *parentObserver) OnReject(ev breaker.RejectEvent) { o.next.OnReject(ev) }
-func (o *parentObserver) OnHookPanic(name string, recovered any) {
-	o.next.OnHookPanic(name, recovered)
+	o.Events.OnStateChange(ev)
 }
 
 // rejectNoHealthy fires OnReject on the parent's events for a Pick that

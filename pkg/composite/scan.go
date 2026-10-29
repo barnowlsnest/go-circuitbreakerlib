@@ -18,13 +18,14 @@ type scanResult struct {
 // simply compute the same answer twice.
 func (c *Composite) refreshScan() {
 	now := c.clock()
-	last := c.scan.Load()
-	if last != nil {
-		age := now.Sub(last.at)
-		if age < c.scanInterval {
-			return
-		}
+	if now.Sub(c.scan.Load().at) < c.scanInterval {
+		return
 	}
+	c.rescan(now)
+}
+
+// rescan counts open children as of now and stores the result.
+func (c *Composite) rescan(now time.Time) {
 	children := *c.children.Load()
 	result := &scanResult{at: now, total: len(children)}
 	for _, child := range children {
@@ -35,17 +36,11 @@ func (c *Composite) refreshScan() {
 	c.scan.Store(result)
 }
 
-// invalidateScan drops the cache and rebuilds it now. Called under mu.
-func (c *Composite) invalidateScan() {
-	c.scan.Store(nil)
-	c.refreshScan()
-}
+// invalidateScan rebuilds the cache now. Called under topology.
+func (c *Composite) invalidateScan() { c.rescan(c.clock()) }
 
 // scanned returns the cached open and total child counts.
 func (c *Composite) scanned() (open, total int) {
 	last := c.scan.Load()
-	if last == nil {
-		return 0, 0
-	}
 	return last.open, last.total
 }

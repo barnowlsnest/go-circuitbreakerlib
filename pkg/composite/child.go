@@ -3,6 +3,7 @@ package composite
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -33,13 +34,19 @@ func (c *Composite) AddChild(id string) (*breaker.Breaker, error) {
 		return nil, ErrNoChildTemplate
 	}
 	cfg := c.template(id)
+	return c.attachLeaf(id, &cfg)
+}
+
+// attachLeaf builds a leaf from cfg, defaulting an empty Name to id and nil
+// Events to the composite's, and attaches it.
+func (c *Composite) attachLeaf(id string, cfg *breaker.Config) (*breaker.Breaker, error) {
 	if cfg.Name == "" {
 		cfg.Name = id
 	}
 	if cfg.Events == nil {
 		cfg.Events = c.events
 	}
-	b, err := breaker.New(&cfg)
+	b, err := breaker.New(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -60,32 +67,22 @@ func (c *Composite) AttachChild(child Child) error {
 	}
 	topology.Lock()
 	defer topology.Unlock()
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	name := child.Name()
 	current := *c.children.Load()
-	for _, existing := range current {
-		if existing.Name() == name {
-			return fmt.Errorf("%w: %q", ErrDuplicateChild, name)
-		}
+	if indexOf(current, name) >= 0 {
+		return fmt.Errorf("%w: %q", ErrDuplicateChild, name)
 	}
 	sub, isComposite := child.(*Composite)
-	if isComposite {
-		if sub == c || c.hasAncestor(sub) {
-			return ErrCycle
-		}
-		if c.rootDistance()+sub.height() > MaxDepth {
-			return ErrTooDeep
-		}
-		if !sub.owner.CompareAndSwap(nil, c) {
-			return ErrAlreadyAttached
-		}
-	} else if c.rootDistance()+1 > MaxDepth {
+	if isComposite && (sub == c || c.hasAncestor(sub)) {
+		return ErrCycle
+	}
+	if c.rootDistance()+heightOf(child) > MaxDepth {
 		return ErrTooDeep
 	}
-	next := make([]Child, len(current)+1)
-	copy(next, current)
-	next[len(current)] = child
+	if isComposite && !sub.owner.CompareAndSwap(nil, c) {
+		return ErrAlreadyAttached
+	}
+	next := slices.Concat(current, []Child{child})
 	c.children.Store(&next)
 	c.invalidateScan()
 	return nil
@@ -96,32 +93,25 @@ func (c *Composite) AttachChild(child Child) error {
 func (c *Composite) RemoveChild(id string) bool {
 	topology.Lock()
 	defer topology.Unlock()
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	current := *c.children.Load()
-	for i, child := range current {
-		if child.Name() != id {
-			continue
-		}
-		next := make([]Child, 0, len(current)-1)
-		next = append(next, current[:i]...)
-		next = append(next, current[i+1:]...)
-		c.children.Store(&next)
-		if sub, ok := child.(*Composite); ok {
-			sub.owner.Store(nil)
-		}
-		c.invalidateScan()
-		return true
+	i := indexOf(current, id)
+	if i < 0 {
+		return false
 	}
-	return false
+	next := slices.Concat(current[:i], current[i+1:])
+	c.children.Store(&next)
+	if sub, ok := current[i].(*Composite); ok {
+		sub.owner.Store(nil)
+	}
+	c.invalidateScan()
+	return true
 }
 
 // Child returns the child named id.
 func (c *Composite) Child(id string) (Child, bool) {
-	for _, child := range *c.children.Load() {
-		if child.Name() == id {
-			return child, true
-		}
+	current := *c.children.Load()
+	if i := indexOf(current, id); i >= 0 {
+		return current[i], true
 	}
 	return nil, false
 }
@@ -151,13 +141,21 @@ func (c *Composite) rootDistance() int {
 func (c *Composite) height() int {
 	h := 1
 	for _, child := range *c.children.Load() {
-		ch := 1
-		if sub, ok := child.(*Composite); ok {
-			ch = sub.height()
-		}
-		h = max(h, ch+1)
+		h = max(h, heightOf(child)+1)
 	}
 	return h
+}
+
+// heightOf is 1 for a leaf and the composite's height otherwise.
+func heightOf(child Child) int {
+	if sub, ok := child.(*Composite); ok {
+		return sub.height()
+	}
+	return 1
+}
+
+func indexOf(children []Child, name string) int {
+	return slices.IndexFunc(children, func(child Child) bool { return child.Name() == name })
 }
 
 func (c *Composite) hasAncestor(target *Composite) bool {

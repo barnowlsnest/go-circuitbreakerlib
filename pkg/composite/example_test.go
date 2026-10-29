@@ -12,7 +12,11 @@ import (
 func ExampleComposite() {
 	// One breaker per instance of a dependency, and a parent that opens when
 	// half of the instances are down.
-	dep, err := composite.New(composite.Config{
+	trip, err := composite.OpenChildrenRatio(0.5)
+	if err != nil {
+		panic(err)
+	}
+	dep, err := composite.New(&composite.Config{
 		Name: "search",
 		ChildTemplate: func(instance string) breaker.Config {
 			return breaker.Config{
@@ -20,7 +24,7 @@ func ExampleComposite() {
 				OpenDuration: 10 * time.Second,
 			}
 		},
-		Trip: composite.OpenChildrenRatio(0.5),
+		Trip: trip,
 	})
 	if err != nil {
 		panic(err)

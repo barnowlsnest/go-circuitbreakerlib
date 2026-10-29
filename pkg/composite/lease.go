@@ -67,32 +67,36 @@ func (c *Composite) pick(l *Lease) error {
 	l.depth++
 	children := *c.children.Load()
 	n := len(children)
-	start := int(c.rr.Load())
-	for i := range n {
-		idx := (start + i) % n
-		child := children[idx]
-		if sub, ok := child.(*Composite); ok {
-			if sub.pick(l) == nil {
-				c.rr.Store(int64(idx + 1))
-				return nil
-			}
-			continue
+	idx := int(c.rr.Load()) % max(n, 1)
+	for range n {
+		if c.pickChild(l, children[idx]) {
+			c.rr.Store(int64(idx + 1))
+			return nil
 		}
-		cp, err := child.Allow()
-		if err != nil {
-			continue
+		idx++
+		if idx == n {
+			idx = 0
 		}
-		l.Leaf = child
-		l.permits[l.depth] = cp
-		c.rr.Store(int64(idx + 1))
-		return nil
 	}
 	l.depth--
-	l.hops[level] = nil
 	c.parent.Record(p, breaker.OutcomeIgnored, 0)
 	state := c.parent.State()
 	c.rejectNoHealthy(c.clock(), state)
 	return c.noHealthy[state]
+}
+
+// pickChild extends l through child and reports whether child admitted.
+func (*Composite) pickChild(l *Lease, child Child) bool {
+	if sub, ok := child.(*Composite); ok {
+		return sub.pick(l) == nil
+	}
+	cp, err := child.Allow()
+	if err != nil {
+		return false
+	}
+	l.Leaf = child
+	l.permits[l.depth] = cp
+	return true
 }
 
 // RecordLease records outcome on the leaf and then on every composite along
@@ -130,11 +134,11 @@ func (c *Composite) Execute(ctx context.Context, fn func(ctx context.Context, le
 	var callErr error
 	defer func() {
 		elapsed := c.clock().Sub(start)
-		if !done {
-			c.RecordLease(l, breaker.OutcomeFailure, elapsed)
-			return
+		outcome := breaker.OutcomeFailure
+		if done {
+			outcome = c.classify(ctx, callErr)
 		}
-		c.RecordLease(l, c.classify(ctx, callErr), elapsed)
+		c.RecordLease(l, outcome, elapsed)
 	}()
 	callErr = fn(ctx, l.ID())
 	done = true
