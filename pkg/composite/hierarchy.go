@@ -50,7 +50,7 @@ func buildComposite(
 	if cfg.Name == "" {
 		cfg.Name = n.Val()
 	}
-	c, err := New(cfg)
+	c, err := New(&cfg)
 	if err != nil {
 		return nil, err
 	}

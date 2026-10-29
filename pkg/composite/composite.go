@@ -57,9 +57,10 @@ type Composite struct {
 // New builds a composite with no children. It returns ErrInvalidConfig when
 // Parent.Policies is set or ScanInterval is negative, and the parent
 // breaker's own validation errors otherwise.
-//
-//nolint:gocritic // Config is passed by value like breaker.Config.
-func New(cfg Config) (*Composite, error) {
+func New(cfg *Config) (*Composite, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("%w: nil Config", ErrInvalidConfig)
+	}
 	if len(cfg.Parent.Policies) > 0 {
 		return nil, fmt.Errorf("%w: Parent.Policies must be empty, Trip is the parent policy", ErrInvalidConfig)
 	}

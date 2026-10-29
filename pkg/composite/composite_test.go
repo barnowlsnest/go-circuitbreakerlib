@@ -64,8 +64,8 @@ func (s *baseSuite) template(id string) breaker.Config {
 	}
 }
 
-func (s *baseSuite) config(name string, trip TripFunc) Config {
-	return Config{
+func (s *baseSuite) config(name string, trip TripFunc) *Config {
+	return &Config{
 		ChildTemplate: s.template,
 		Trip:          trip,
 		ScanInterval:  testScanInterval,
@@ -138,6 +138,12 @@ func (s *baseSuite) record(c *Composite, n, failures int) {
 	}
 }
 
+func (s *CompositeSuite) TestNilConfig() {
+	c, err := New(nil)
+	s.ErrorIs(err, ErrInvalidConfig)
+	s.Nil(c)
+}
+
 func (s *CompositeSuite) TestInvalidConfig() {
 	tests := []struct {
 		expectedErr error
@@ -160,7 +166,7 @@ func (s *CompositeSuite) TestInvalidConfig() {
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
 			cfg := s.config(testName, nil)
-			tt.mutate(&cfg)
+			tt.mutate(cfg)
 			c, err := New(cfg)
 			s.ErrorIs(err, tt.expectedErr)
 			s.Nil(c)

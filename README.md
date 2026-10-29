@@ -327,7 +327,7 @@ trip, err := composite.OpenChildrenRatio(0.5)
 if err != nil {
 	panic(err)
 }
-dep, err := composite.New(composite.Config{
+dep, err := composite.New(&composite.Config{
 	Name: "search",
 	ChildTemplate: func(instance string) breaker.Config {
 		return breaker.Config{
