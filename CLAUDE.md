@@ -99,8 +99,13 @@ HalfOpen admission takes the mutex.
 
 ### Comments
 
-Don't add explanatory comments to fixes or tests. Godoc on exported
-identifiers stays; ask before changing it.
+Don't add explanatory comments to fixes or tests.
+
+Godoc on exported identifiers: **one short sentence**. No essays. Do not
+restate the signature, defaults, panic policy, sibling-library compatibility,
+call-site behavior, or anything already in `docs/spec.md`. Ask before
+changing existing godoc; when you do write or rewrite one, keep it to a
+single line that names the thing.
 
 ### Tests
 

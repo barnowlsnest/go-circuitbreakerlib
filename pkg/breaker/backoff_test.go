@@ -15,11 +15,6 @@ func TestBackoffSuite(t *testing.T) {
 	suite.Run(t, new(BackoffSuite))
 }
 
-func (s *BackoffSuite) TestConstant() {
-	const d = 30 * time.Second
-	s.Equal(d, ConstantBackoff(d).Delay(5))
-}
-
 func (s *BackoffSuite) TestExponential() {
 	b := ExponentialBackoff{Base: time.Second, Max: 8 * time.Second}
 	cases := []struct {

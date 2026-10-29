@@ -85,24 +85,8 @@ stateDiagram-v2
 
 ### Permits
 
-`Allow` returns a `Permit` or a rejection. `Record` takes the permit back
-with an `Outcome` and the elapsed time. A permit carries the epoch it was
-issued in; a permit from before a state change is discarded on `Record`, so
-a slow response from before the breaker opened cannot close it.
-
-```go
-p, err := b.Allow()
-if err != nil {
-	return err // *breaker.RejectedError
-}
-start := time.Now()
-err = call()
-b.Record(p, classify(err), time.Since(start))
-```
-
-`Execute` and `Do` do that for you, classify with `WithClassifier`, and
-record in a `defer`, so a panicking function records a failure before the
-panic propagates:
+Prefer `Execute` / `Do`. They call `Allow`, run your function, classify with
+`WithClassifier`, and `Record` in a `defer`.
 
 ```go
 b, err := breaker.New(breaker.WithName("inventory"))
@@ -126,6 +110,23 @@ price, err := breaker.Do(context.Background(), b, func(ctx context.Context) (int
 })
 fmt.Println(price, err)
 // Output: 1999 <nil>
+```
+
+`Allow` / `Record` is the low-level path. A permit issued before a state
+change is ignored on `Record`.
+
+```go
+p, err := b.Allow()
+if err != nil {
+	return err // *breaker.RejectedError
+}
+start := time.Now()
+err = call()
+outcome := breaker.OutcomeSuccess
+if err != nil {
+	outcome = breaker.OutcomeFailure
+}
+b.Record(p, outcome, time.Since(start))
 ```
 
 ### Configuration
@@ -154,8 +155,8 @@ fmt.Println(b.Name(), b.State())
 | `WithName`                | required                                                    | Appears in events, log lines, and `RejectedError`.                                                                                           |
 | `WithWindow`              | `SlidingTimeWindow{Size: 10s, Buckets: 10}`                 | What the policies look at. `SlidingCountWindow{Size: n}` keeps the last `n` calls instead.                                                   |
 | `WithPolicies`            | `FailureRate{0.5, 20}` and `ConsecutiveFailures{5}`         | Any policy that trips opens the breaker. Run after every Closed record and once more on the record that would close a HalfOpen breaker.     |
-| `WithBackoff`             | `ConstantBackoff(OpenDuration)`                             | How long Open lasts on attempt `n`. `ExponentialBackoff{Base, Max, Jitter}` doubles per attempt.                                             |
-| `WithOpenDuration`        | `30s`                                                       | The constant backoff when `WithBackoff` is unset.                                                                                            |
+| `WithBackoff`             | unset (`OpenDuration`)                                      | How long Open lasts on attempt `n`. `ExponentialBackoff{Base, Max, Jitter}` doubles per attempt.                                             |
+| `WithOpenDuration`        | `30s`                                                       | Open delay when `WithBackoff` is unset.                                                                                                      |
 | `WithHalfOpenMaxCalls`    | `1`                                                         | Probe calls in flight at once while HalfOpen. More are rejected with `ErrTooManyProbes`.                                                     |
 | `WithHalfOpenSuccesses`   | `HalfOpenMaxCalls`                                          | Successful probes needed to close.                                                                                                           |
 | `WithProbeTimeout`        | `60s`                                                       | A probe not recorded within this time is treated as failed and the breaker opens again. Must be at least your request timeout.               |

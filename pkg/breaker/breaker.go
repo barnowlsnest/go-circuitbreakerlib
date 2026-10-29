@@ -341,6 +341,9 @@ func (b *Breaker) open(now time.Time, reason Reason, attempt int) (ev StateChang
 }
 
 func (b *Breaker) delay(attempt int) (d time.Duration, recovered any) {
+	if b.cfg.Backoff == nil {
+		return b.cfg.OpenDuration, nil
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			d, recovered = b.cfg.OpenDuration, r
