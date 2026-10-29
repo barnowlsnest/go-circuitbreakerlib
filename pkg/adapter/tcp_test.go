@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
-	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/registry"
 )
 
 const (
@@ -177,7 +176,7 @@ func (s *TCPSuite) TestDialRejectedWhenOpen() {
 }
 
 func (s *TCPSuite) TestRegistryKeyedByAddress() {
-	reg := registry.New(func(string) breaker.Config { return breaker.Config{} })
+	reg := newTestRegistry(s.T())
 	d, err := NewTCPDialer(s.next, WithRegistry(reg))
 	s.Require().NoError(err)
 	s.next.On("DialContext", mock.Anything, testNetwork, testAddress).Return(nil, errReset).Once()
@@ -189,7 +188,7 @@ func (s *TCPSuite) TestRegistryKeyedByAddress() {
 }
 
 func (s *TCPSuite) TestCustomKeyAndClassifier() {
-	reg := registry.New(func(string) breaker.Config { return breaker.Config{} })
+	reg := newTestRegistry(s.T())
 	d, err := NewTCPDialer(s.next, WithRegistry(reg),
 		WithTCPKey(func(network, address string) string { return network + "/" + strings.Split(address, ":")[0] }),
 		WithTCPClassifier(func(context.Context, error) breaker.Outcome { return breaker.OutcomeIgnored }),
@@ -217,7 +216,7 @@ func (s *TCPSuite) TestClassifierPanicIsFailure() {
 }
 
 func (s *TCPSuite) TestRegistryErrorFailsDial() {
-	reg := registry.New(func(string) breaker.Config { return breaker.Config{OpenDuration: -1} })
+	reg := newFailingRegistry(s.T())
 	d, err := NewTCPDialer(s.next, WithRegistry(reg))
 	s.Require().NoError(err)
 	_, err = d.DialContext(context.Background(), testNetwork, testAddress)

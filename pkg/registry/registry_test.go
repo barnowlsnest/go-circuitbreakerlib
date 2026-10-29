@@ -63,7 +63,10 @@ func config() breaker.Config {
 }
 
 func (s *RegistrySuite) newRegistry(opts ...Option) *Registry {
-	return New(s.factory.Make, append([]Option{WithClock(s.clock.Now), WithOnEvict(s.onEvict.Evict)}, opts...)...)
+	s.T().Helper()
+	r, err := New(s.factory.Make, append([]Option{WithClock(s.clock.Now), WithOnEvict(s.onEvict.Evict)}, opts...)...)
+	s.Require().NoError(err)
+	return r
 }
 
 // mustGet creates key and advances the clock so the next entry is younger.
@@ -121,11 +124,13 @@ func (s *RegistrySuite) TestFactoryErrorNotMemoized() {
 	s.False(ok)
 }
 
-func (s *RegistrySuite) TestNilFactoryPanics() {
-	s.PanicsWithError(ErrNilFactory.Error(), func() { New(nil) })
+func (s *RegistrySuite) TestNilFactory() {
+	r, err := New(nil)
+	s.ErrorIs(err, ErrNilFactory)
+	s.Nil(r)
 }
 
-func (s *RegistrySuite) TestInvalidOptionPanics() {
+func (s *RegistrySuite) TestInvalidOption() {
 	tests := []struct {
 		opt  Option
 		name string
@@ -140,7 +145,9 @@ func (s *RegistrySuite) TestInvalidOptionPanics() {
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			s.Panics(func() { New(s.factory.Make, tt.opt) })
+			r, err := New(s.factory.Make, tt.opt)
+			s.ErrorIs(err, ErrInvalidOption)
+			s.Nil(r)
 		})
 	}
 }

@@ -42,12 +42,15 @@ One breaker per host behind an `http.Client`:
 
 ```go
 // One breaker per host, created on first use.
-hosts := registry.New(func(host string) breaker.Config {
+hosts, err := registry.New(func(host string) breaker.Config {
 	return breaker.Config{
 		Policies:     []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}},
 		OpenDuration: 30 * time.Second,
 	}
 })
+if err != nil {
+	panic(err)
+}
 transport, err := adapter.NewHTTPRoundTripper(nil, adapter.WithRegistry(hosts))
 if err != nil {
 	panic(err)
@@ -256,12 +259,15 @@ that is down right now is not forgotten.
 
 ```go
 // One breaker per upstream host, at most 100 of them.
-r := registry.New(func(host string) breaker.Config {
+r, err := registry.New(func(host string) breaker.Config {
 	return breaker.Config{
 		Policies:     []breaker.Policy{breaker.FailureRate{Threshold: 0.5, MinCalls: 20}},
 		OpenDuration: 30 * time.Second,
 	}
 }, registry.WithMaxEntries(100))
+if err != nil {
+	panic(err)
+}
 
 b, err := r.Get("payments.internal")
 if err != nil {
@@ -289,12 +295,15 @@ if err != nil {
 }
 // Every breaker gets the log hook, and the hook's per-breaker
 // rate-limiter state is dropped when the registry evicts a breaker.
-hosts := registry.New(
+hosts, err := registry.New(
 	func(host string) breaker.Config { return breaker.Config{} },
 	registry.WithEvents(events),
 	registry.WithMaxEntries(1000),
 	registry.WithOnEvict(func(key string, _ *breaker.Breaker) { events.Forget(key) }),
 )
+if err != nil {
+	panic(err)
+}
 ```
 
 A factory `Config` that fails validation makes `Get` return the error on
@@ -464,12 +473,15 @@ stream interceptor records stream establishment only.
 // One breaker per address. Dial outcomes are always recorded; with
 // WithTCPTrackIO every Read and Write on the returned conn also asks the
 // breaker, so an open breaker fails established connections fast.
-addresses := registry.New(func(address string) breaker.Config {
+addresses, err := registry.New(func(address string) breaker.Config {
 	return breaker.Config{
 		Policies:     []breaker.Policy{breaker.ConsecutiveFailures{Count: 5}},
 		OpenDuration: 15 * time.Second,
 	}
 })
+if err != nil {
+	panic(err)
+}
 dialer, err := adapter.NewTCPDialer(
 	&net.Dialer{Timeout: 3 * time.Second},
 	adapter.WithRegistry(addresses),

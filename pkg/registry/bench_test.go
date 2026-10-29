@@ -15,7 +15,10 @@ func benchFactory(string) breaker.Config {
 
 // BenchmarkGetHit is the hot path: an existing key. It must not allocate.
 func BenchmarkGetHit(b *testing.B) {
-	r := New(benchFactory)
+	r, err := New(benchFactory)
+	if err != nil {
+		b.Fatal(err)
+	}
 	if _, err := r.Get("hot"); err != nil {
 		b.Fatal(err)
 	}
@@ -30,7 +33,10 @@ func BenchmarkGetHit(b *testing.B) {
 // BenchmarkGetHitParallel hits one key from every P at once; the
 // conditional access store keeps the cache line quiet.
 func BenchmarkGetHitParallel(b *testing.B) {
-	r := New(benchFactory)
+	r, err := New(benchFactory)
+	if err != nil {
+		b.Fatal(err)
+	}
 	if _, err := r.Get("hot"); err != nil {
 		b.Fatal(err)
 	}
@@ -48,7 +54,10 @@ func BenchmarkGetHitParallel(b *testing.B) {
 // BenchmarkGetCreateBounded floods a bounded registry with unique keys so
 // every call creates and evicts.
 func BenchmarkGetCreateBounded(b *testing.B) {
-	r := New(benchFactory, WithMaxEntries(benchKeys))
+	r, err := New(benchFactory, WithMaxEntries(benchKeys))
+	if err != nil {
+		b.Fatal(err)
+	}
 	b.ReportAllocs()
 	i := 0
 	for b.Loop() {

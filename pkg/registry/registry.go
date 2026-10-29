@@ -38,12 +38,12 @@ func newDefaultRand(seed time.Time) *rand.Rand {
 	return rand.New(rand.NewPCG(uint64(seed.UnixNano()), 0))
 }
 
-// New returns a registry that builds breakers with factory. It panics with
-// ErrNilFactory when factory is nil and with ErrInvalidOption on a bad
-// option value.
-func New(factory Factory, opts ...Option) *Registry {
+// New returns a registry that builds breakers with factory. It returns
+// ErrNilFactory when factory is nil and ErrInvalidOption on a bad option
+// value.
+func New(factory Factory, opts ...Option) (*Registry, error) {
 	if factory == nil {
-		panic(ErrNilFactory)
+		return nil, ErrNilFactory
 	}
 	o := options{
 		clock:        time.Now,
@@ -52,13 +52,15 @@ func New(factory Factory, opts ...Option) *Registry {
 		granularity:  DefaultAccessGranularity,
 	}
 	for _, opt := range opts {
-		opt(&o)
+		if err := opt(&o); err != nil {
+			return nil, err
+		}
 	}
 	start := o.clock()
 	if o.rand == nil {
 		o.rand = newDefaultRand(start)
 	}
-	return &Registry{factory: factory, start: start, options: o}
+	return &Registry{factory: factory, start: start, options: o}, nil
 }
 
 // Get returns the breaker for key, creating it on first use. A factory
