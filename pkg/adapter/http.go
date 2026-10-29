@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -37,12 +38,24 @@ func DefaultHTTPClassifier(ctx context.Context, resp *http.Response, err error) 
 
 // WithHTTPKey sets the registry key function.
 func WithHTTPKey(fn HTTPKeyFunc) Option {
-	return funcOption(protoHTTP, "HTTP key", fn == nil, func(s *settings) { s.httpKey = fn })
+	return Option{proto: protoHTTP, apply: func(s *settings) error {
+		if fn == nil {
+			return fmt.Errorf("%w: nil HTTP key", ErrInvalidOption)
+		}
+		s.httpKey = fn
+		return nil
+	}}
 }
 
 // WithHTTPClassifier sets the outcome classifier.
 func WithHTTPClassifier(fn HTTPClassifier) Option {
-	return funcOption(protoHTTP, "HTTP classifier", fn == nil, func(s *settings) { s.httpClassifier = fn })
+	return Option{proto: protoHTTP, apply: func(s *settings) error {
+		if fn == nil {
+			return fmt.Errorf("%w: nil HTTP classifier", ErrInvalidOption)
+		}
+		s.httpClassifier = fn
+		return nil
+	}}
 }
 
 // roundTripper is the breaker-protected http.RoundTripper.

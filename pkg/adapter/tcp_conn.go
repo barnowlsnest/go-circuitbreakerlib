@@ -115,9 +115,7 @@ func track[N int | int64](c *trackedConn, op func() (N, error), kind ioKind) (N,
 	}
 	start := time.Now()
 	n, err := op()
-	if outcome := classifyIO(p, err); outcome != breaker.OutcomeIgnored || p.IsProbe() {
-		c.breaker.Record(p, outcome, time.Since(start))
-	}
+	c.breaker.Record(p, classifyIO(p, err), time.Since(start))
 	return n, err
 }
 
@@ -138,7 +136,8 @@ func (c *trackedConn) allow(kind ioKind) (p breaker.Permit, tracked bool, err er
 
 // rejectConn wraps a rejection so it satisfies net.Error.
 func rejectConn(err error) error {
-	if re, ok := asRejected(err); ok {
+	var re *breaker.RejectedError
+	if errors.As(err, &re) {
 		return &connRejectedError{RejectedError: re}
 	}
 	return err

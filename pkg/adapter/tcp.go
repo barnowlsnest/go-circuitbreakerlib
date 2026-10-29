@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -30,12 +31,24 @@ func DefaultTCPClassifier(ctx context.Context, err error) breaker.Outcome {
 
 // WithTCPKey sets the registry key function.
 func WithTCPKey(fn TCPKeyFunc) Option {
-	return funcOption(protoTCP, "TCP key", fn == nil, func(s *settings) { s.tcpKey = fn })
+	return Option{proto: protoTCP, apply: func(s *settings) error {
+		if fn == nil {
+			return fmt.Errorf("%w: nil TCP key", ErrInvalidOption)
+		}
+		s.tcpKey = fn
+		return nil
+	}}
 }
 
 // WithTCPClassifier sets the dial outcome classifier.
 func WithTCPClassifier(fn TCPClassifier) Option {
-	return funcOption(protoTCP, "TCP classifier", fn == nil, func(s *settings) { s.tcpClassifier = fn })
+	return Option{proto: protoTCP, apply: func(s *settings) error {
+		if fn == nil {
+			return fmt.Errorf("%w: nil TCP classifier", ErrInvalidOption)
+		}
+		s.tcpClassifier = fn
+		return nil
+	}}
 }
 
 // WithTCPTrackIO wraps every dialed conn so each Read and Write asks the

@@ -45,12 +45,24 @@ func DefaultGRPCClassifier(ctx context.Context, err error) breaker.Outcome {
 
 // WithGRPCKey sets the registry key function.
 func WithGRPCKey(fn GRPCKeyFunc) Option {
-	return funcOption(protoGRPC, "gRPC key", fn == nil, func(s *settings) { s.grpcKey = fn })
+	return Option{proto: protoGRPC, apply: func(s *settings) error {
+		if fn == nil {
+			return fmt.Errorf("%w: nil gRPC key", ErrInvalidOption)
+		}
+		s.grpcKey = fn
+		return nil
+	}}
 }
 
 // WithGRPCClassifier sets the outcome classifier.
 func WithGRPCClassifier(fn GRPCClassifier) Option {
-	return funcOption(protoGRPC, "gRPC classifier", fn == nil, func(s *settings) { s.grpcClassifier = fn })
+	return Option{proto: protoGRPC, apply: func(s *settings) error {
+		if fn == nil {
+			return fmt.Errorf("%w: nil gRPC classifier", ErrInvalidOption)
+		}
+		s.grpcClassifier = fn
+		return nil
+	}}
 }
 
 // WithGRPCRejectCode sets the status code of a rejected call. The default,
@@ -87,10 +99,14 @@ func (e *grpcRejectedError) Unwrap() error { return e.RejectedError }
 // comes back as a status error with the configured code.
 func (s *settings) admit(ctx context.Context, method string, cc *grpc.ClientConn) (*breaker.Breaker, breaker.Permit, error) {
 	b, p, err := s.acquire(s.grpcKey(ctx, method, cc))
-	if re, ok := asRejected(err); ok {
-		return nil, breaker.Permit{}, &grpcRejectedError{RejectedError: re, code: s.grpcRejectCode}
+	if err != nil {
+		var re *breaker.RejectedError
+		if errors.As(err, &re) {
+			return nil, breaker.Permit{}, &grpcRejectedError{RejectedError: re, code: s.grpcRejectCode}
+		}
+		return nil, breaker.Permit{}, err
 	}
-	return b, p, err
+	return b, p, nil
 }
 
 // NewGRPCUnaryInterceptor returns a client interceptor that records every

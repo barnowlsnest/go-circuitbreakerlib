@@ -1,7 +1,6 @@
 package adapter
 
 import (
-	"errors"
 	"fmt"
 
 	"google.golang.org/grpc/codes"
@@ -131,29 +130,6 @@ func (s *settings) acquire(key string) (*breaker.Breaker, breaker.Permit, error)
 		return nil, breaker.Permit{}, err
 	}
 	return b, p, nil
-}
-
-// asRejected finds the *breaker.RejectedError in err. Allow returns one
-// unwrapped, so the type assertion avoids errors.As on the reject path.
-func asRejected(err error) (*breaker.RejectedError, bool) {
-	if re, ok := err.(*breaker.RejectedError); ok { //nolint:errorlint // fast path; errors.As below
-		return re, true
-	}
-	var re *breaker.RejectedError
-	ok := errors.As(err, &re)
-	return re, ok
-}
-
-// funcOption builds an option of p that rejects a nil function, named what in
-// the error, and otherwise calls set.
-func funcOption(p proto, what string, isNil bool, set func(*settings)) Option {
-	return Option{proto: p, apply: func(s *settings) error {
-		if isNil {
-			return fmt.Errorf("%w: nil %s", ErrInvalidOption, what)
-		}
-		set(s)
-		return nil
-	}}
 }
 
 // classify runs fn under recover; a panicking classifier is a failure
