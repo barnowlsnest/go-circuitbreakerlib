@@ -89,8 +89,7 @@ func (t *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	start := time.Now()
 	resp, err := t.next.RoundTrip(req)
-	elapsed := time.Since(start)
-	b.Record(p, classify(b, func() breaker.Outcome { return t.settings.httpClassifier(req.Context(), resp, err) }), elapsed)
+	b.Record(p, classifyHTTP(b, t.settings.httpClassifier, req.Context(), resp, err), time.Since(start))
 	if err != nil && resp != nil {
 		if resp.Body != nil {
 			_ = resp.Body.Close()

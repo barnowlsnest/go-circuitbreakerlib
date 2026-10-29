@@ -1,7 +1,9 @@
 package adapter
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 
 	"google.golang.org/grpc/codes"
 
@@ -142,4 +144,16 @@ func classify(b *breaker.Breaker, fn func() breaker.Outcome) (o breaker.Outcome)
 		}
 	}()
 	return fn()
+}
+
+func classifyHTTP(b *breaker.Breaker, fn HTTPClassifier, ctx context.Context, resp *http.Response, err error) breaker.Outcome {
+	return classify(b, func() breaker.Outcome { return fn(ctx, resp, err) })
+}
+
+func classifyGRPC(b *breaker.Breaker, fn GRPCClassifier, ctx context.Context, err error) breaker.Outcome {
+	return classify(b, func() breaker.Outcome { return fn(ctx, err) })
+}
+
+func classifyTCP(b *breaker.Breaker, fn TCPClassifier, ctx context.Context, err error) breaker.Outcome {
+	return classify(b, func() breaker.Outcome { return fn(ctx, err) })
 }
