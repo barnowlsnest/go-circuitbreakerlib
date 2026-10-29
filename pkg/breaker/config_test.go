@@ -61,7 +61,7 @@ func (s *ConfigSuite) TestDefaults() {
 	s.NotNil(cfg.Classifier)
 	s.NotNil(cfg.Events)
 	s.NotNil(cfg.Clock)
-	s.Equal(30*time.Second, cfg.Backoff.Delay(0))
+	s.Nil(cfg.Backoff)
 }
 
 func (s *ConfigSuite) TestSuccessesIndependentOfMaxCalls() {

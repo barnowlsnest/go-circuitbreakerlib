@@ -499,9 +499,8 @@ Signature-identical to `go-asynctasklib/v2/pkg/retry.Strategy`, so
 asynctasklib. `attempt` is 0 on the first Open. `Delay` is called **once** per
 Open entry; the result is stored as `reopenAt`. A panicking `Delay` falls back
 to `Config.OpenDuration` and fires `OnHookPanic("backoff", r)` after unlock.
-Provided in-core:
+When unset, `OpenDuration` (default 30s) is used. Provided in-core:
 
-- `ConstantBackoff(d)` — default, with `Config.OpenDuration` (default 30s).
 - `ExponentialBackoff{Base time.Duration, Max time.Duration, Jitter bool}` —
   small local implementation (jitter via `math/rand/v2`, no syscalls).
 

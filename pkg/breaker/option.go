@@ -66,8 +66,7 @@ func WithWindow(w WindowSpec) Option {
 	}
 }
 
-// WithBackoff sets the open-state delay. When unset, ConstantBackoff of
-// OpenDuration is used.
+// WithBackoff sets the open-state delay. When unset, OpenDuration is used.
 func WithBackoff(b Backoff) Option {
 	return func(o *options) error {
 		if b == nil {

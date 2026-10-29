@@ -6,21 +6,10 @@ import (
 	"time"
 )
 
-// Backoff returns how long a breaker stays Open on its attempt-th
-// consecutive trip (attempt is 0 on the first). The signature matches
-// go-asynctasklib's retry.Strategy, so those strategies satisfy it. A
-// panicking Delay falls back to Config.OpenDuration and is reported through
-// Events.OnHookPanic as "backoff".
+// Backoff decides how long a breaker stays Open for a given attempt.
 type Backoff interface {
 	Delay(attempt int) time.Duration
 }
-
-// ConstantBackoff returns the same delay for every attempt.
-func ConstantBackoff(d time.Duration) Backoff { return constantBackoff(d) }
-
-type constantBackoff time.Duration
-
-func (c constantBackoff) Delay(int) time.Duration { return time.Duration(c) }
 
 // ExponentialBackoff doubles Base on every attempt, capped at Max. With
 // Jitter the result is drawn uniformly from [0, delay].

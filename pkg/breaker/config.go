@@ -103,9 +103,6 @@ func (c *config) applyDefaults() {
 	if c.HalfOpenSuccesses == 0 {
 		c.HalfOpenSuccesses = c.HalfOpenMaxCalls
 	}
-	if c.Backoff == nil {
-		c.Backoff = ConstantBackoff(c.OpenDuration)
-	}
 	if c.Classifier == nil {
 		c.Classifier = DefaultClassifier
 	}
