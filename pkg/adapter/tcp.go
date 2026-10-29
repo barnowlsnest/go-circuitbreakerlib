@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -27,13 +26,7 @@ func DefaultTCPKey(_, address string) string { return address }
 // DefaultTCPClassifier ignores a dial the caller canceled and counts every
 // other error, including a deadline, as a failure.
 func DefaultTCPClassifier(ctx context.Context, err error) breaker.Outcome {
-	if errors.Is(ctx.Err(), context.Canceled) {
-		return breaker.OutcomeIgnored
-	}
-	if err != nil {
-		return breaker.OutcomeFailure
-	}
-	return breaker.OutcomeSuccess
+	return breaker.DefaultClassifier(ctx, err)
 }
 
 // WithTCPKey sets the registry key function.
@@ -82,12 +75,6 @@ func NewTCPDialer(next ContextDialer, opts ...Option) (*TCPDialer, error) {
 	if err != nil {
 		return nil, err
 	}
-	if s.tcpKey == nil {
-		s.tcpKey = DefaultTCPKey
-	}
-	if s.tcpClassifier == nil {
-		s.tcpClassifier = DefaultTCPClassifier
-	}
 	if next == nil {
 		next = &net.Dialer{}
 	}
@@ -98,17 +85,13 @@ func NewTCPDialer(next ContextDialer, opts ...Option) (*TCPDialer, error) {
 // *breaker.RejectedError without dialing. With WithTCPTrackIO the returned
 // conn is wrapped; see trackedConn.
 func (d *TCPDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	b, err := d.settings.resolve(d.settings.tcpKey(network, address))
-	if err != nil {
-		return nil, err
-	}
-	p, err := b.Allow()
+	b, p, err := d.settings.acquire(d.settings.tcpKey(network, address))
 	if err != nil {
 		return nil, err
 	}
 	start := time.Now()
 	conn, err := d.next.DialContext(ctx, network, address)
-	b.Record(p, classifyTCP(b, d.settings.tcpClassifier, ctx, err), time.Since(start))
+	b.Record(p, classify(b, func() breaker.Outcome { return d.settings.tcpClassifier(ctx, err) }), time.Since(start))
 	if err != nil {
 		return nil, err
 	}
@@ -116,16 +99,4 @@ func (d *TCPDialer) DialContext(ctx context.Context, network, address string) (n
 		return &trackedConn{Conn: conn, breaker: b}, nil
 	}
 	return conn, nil
-}
-
-// classifyTCP runs fn under recover; a panicking classifier is a failure
-// reported through b's OnHookPanic.
-func classifyTCP(b *breaker.Breaker, fn TCPClassifier, ctx context.Context, err error) (o breaker.Outcome) {
-	defer func() {
-		if r := recover(); r != nil {
-			o = breaker.OutcomeFailure
-			b.ReportHookPanic(hookClassifier, r)
-		}
-	}()
-	return fn(ctx, err)
 }

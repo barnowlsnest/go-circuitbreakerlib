@@ -81,7 +81,15 @@ func WithRegistry(r *registry.Registry) Option {
 // newSettings applies opts for want and checks that exactly one breaker
 // source is set.
 func newSettings(want proto, opts []Option) (settings, error) {
-	var s settings
+	s := settings{
+		httpKey:        DefaultHTTPKey,
+		httpClassifier: DefaultHTTPClassifier,
+		grpcKey:        DefaultGRPCKey,
+		grpcClassifier: DefaultGRPCClassifier,
+		grpcRejectCode: DefaultGRPCRejectCode,
+		tcpKey:         DefaultTCPKey,
+		tcpClassifier:  DefaultTCPClassifier,
+	}
 	for _, opt := range opts {
 		if opt.proto != protoAny && opt.proto != want {
 			return s, fmt.Errorf("%w: %s option given to the %s adapter", ErrInvalidOption, opt.proto, want)
@@ -109,4 +117,29 @@ func (s *settings) resolve(key string) (*breaker.Breaker, error) {
 		return nil, fmt.Errorf("%w: %w", ErrRegistry, err)
 	}
 	return b, nil
+}
+
+// acquire resolves the breaker for key and takes a permit from it.
+func (s *settings) acquire(key string) (*breaker.Breaker, breaker.Permit, error) {
+	b, err := s.resolve(key)
+	if err != nil {
+		return nil, breaker.Permit{}, err
+	}
+	p, err := b.Allow()
+	if err != nil {
+		return nil, breaker.Permit{}, err
+	}
+	return b, p, nil
+}
+
+// classify runs fn under recover; a panicking classifier is a failure
+// reported through b's OnHookPanic.
+func classify(b *breaker.Breaker, fn func() breaker.Outcome) (o breaker.Outcome) {
+	defer func() {
+		if r := recover(); r != nil {
+			o = breaker.OutcomeFailure
+			b.ReportHookPanic(hookClassifier, r)
+		}
+	}()
+	return fn()
 }
