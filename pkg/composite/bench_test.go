@@ -26,6 +26,6 @@ func BenchmarkPickHit(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		c.RecordLease(l, breaker.OutcomeSuccess, 0)
+		c.RecordLease(l, breaker.OutcomeSuccess, 0, nil)
 	}
 }

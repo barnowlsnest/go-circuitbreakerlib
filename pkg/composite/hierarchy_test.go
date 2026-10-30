@@ -60,7 +60,7 @@ func (s *HierarchySuite) TestBuildsTree() {
 	l, err := root.Pick()
 	s.Require().NoError(err)
 	s.Len(l.Path(), 3)
-	root.RecordLease(l, breaker.OutcomeSuccess, 0)
+	root.RecordLease(l, breaker.OutcomeSuccess, 0, nil)
 }
 
 func (s *HierarchySuite) TestNamesFromNodes() {

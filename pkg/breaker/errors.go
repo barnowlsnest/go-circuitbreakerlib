@@ -21,6 +21,12 @@ var (
 	ErrPolicyCount = errors.New("policy count must be positive")
 	// ErrNilPolicy is joined with ErrInvalidConfig when Policies contains nil.
 	ErrNilPolicy = errors.New("policy is nil")
+	// ErrEmptyPolicies is joined with ErrInvalidConfig when WithPolicies is
+	// called with no policies.
+	ErrEmptyPolicies = errors.New("policies must not be empty")
+	// ErrInvalidBackoff is joined with ErrInvalidConfig when ExponentialBackoff
+	// has Base <= 0 or Max < Base.
+	ErrInvalidBackoff = errors.New("backoff Base must be > 0 and Max >= Base when Max > 0")
 	// ErrOpen is the cause of a RejectedError while the breaker is Open.
 	ErrOpen = errors.New("circuit breaker is open")
 	// ErrTooManyProbes is the cause of a RejectedError while the breaker is

@@ -57,11 +57,11 @@ func FuzzStateMachine(f *testing.F) {
 				if len(live) > 0 {
 					p := live[0]
 					live = live[1:]
-					b.Record(p, Outcome(op%fuzzOps-1), 0)
+					b.Record(p, Outcome(op%fuzzOps-1), 0, nil)
 				}
 			case 3:
 				if len(stale) > 0 {
-					b.Record(stale[0], OutcomeFailure, 0)
+					b.Record(stale[0], OutcomeFailure, 0, nil)
 				}
 			case 4:
 				clock.advance(fuzzAdvanceStep)
@@ -140,14 +140,14 @@ func (s *InvariantSuite) TestStalePermitRaceAcrossGoroutines() {
 		}
 		wg.Go(func() {
 			if p, err := b.Allow(); err == nil {
-				b.Record(p, OutcomeFailure, 0)
+				b.Record(p, OutcomeFailure, 0, nil)
 			}
 		})
 		wg.Wait()
 		before := b.Counts()
 		for i := range workers {
 			if ok[i] {
-				b.Record(permits[i], OutcomeFailure, 0)
+				b.Record(permits[i], OutcomeFailure, 0, nil)
 			}
 		}
 		if b.State() == StateOpen {
@@ -179,7 +179,7 @@ func (s *InvariantSuite) TestLeakedSlotDetectedUnderSteadyProbes() {
 	s.Require().NoError(err)
 	p, err := b.Allow()
 	s.Require().NoError(err)
-	b.Record(p, OutcomeFailure, 0)
+	b.Record(p, OutcomeFailure, 0, nil)
 	s.clock.advance(fuzzOpenDuration)
 	leaked, err := b.Allow()
 	s.Require().NoError(err)
@@ -189,7 +189,7 @@ func (s *InvariantSuite) TestLeakedSlotDetectedUnderSteadyProbes() {
 		for range maxCalls - 1 {
 			q, err := b.Allow()
 			s.Require().NoError(err, "reopened early at %v", s.clock.now)
-			b.Record(q, OutcomeSuccess, 0)
+			b.Record(q, OutcomeSuccess, 0, nil)
 		}
 	}
 	s.clock.advance(time.Millisecond)

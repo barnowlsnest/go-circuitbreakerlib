@@ -80,7 +80,7 @@ func ExampleEvents() {
 		panic(err)
 	}
 	p, _ := b.Allow()
-	b.Record(p, breaker.OutcomeFailure, 0)
+	b.Record(p, breaker.OutcomeFailure, 0, nil)
 	_, err = b.Allow()
 	fmt.Println(err != nil, metrics.transitions["search:open"], metrics.rejections["search"])
 	// Output: true 1 1

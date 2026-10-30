@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -162,14 +161,23 @@ func (c *grpcClient) unary(
 	cc *grpc.ClientConn,
 	invoker grpc.UnaryInvoker,
 	callOpts ...grpc.CallOption,
-) error {
+) (err error) {
 	b, p, err := c.settings.admit(ctx, method, cc)
 	if err != nil {
 		return err
 	}
-	start := time.Now()
+	start := b.Now()
+	done := false
+	defer func() {
+		elapsed := b.Now().Sub(start)
+		if !done {
+			b.Record(p, breaker.OutcomeFailure, elapsed, err)
+			return
+		}
+		b.Record(p, classifyGRPC(b, c.settings.grpcClassifier, ctx, err), elapsed, err)
+	}()
 	err = invoker(ctx, method, req, reply, cc, callOpts...)
-	b.Record(p, classifyGRPC(b, c.settings.grpcClassifier, ctx, err), time.Since(start))
+	done = true
 	return err
 }
 
@@ -180,13 +188,22 @@ func (c *grpcClient) stream(
 	method string,
 	streamer grpc.Streamer,
 	callOpts ...grpc.CallOption,
-) (grpc.ClientStream, error) {
+) (stream grpc.ClientStream, err error) {
 	b, p, err := c.settings.admit(ctx, method, cc)
 	if err != nil {
 		return nil, err
 	}
-	start := time.Now()
-	stream, err := streamer(ctx, desc, cc, method, callOpts...)
-	b.Record(p, classifyGRPC(b, c.settings.grpcClassifier, ctx, err), time.Since(start))
+	start := b.Now()
+	done := false
+	defer func() {
+		elapsed := b.Now().Sub(start)
+		if !done {
+			b.Record(p, breaker.OutcomeFailure, elapsed, err)
+			return
+		}
+		b.Record(p, classifyGRPC(b, c.settings.grpcClassifier, ctx, err), elapsed, err)
+	}()
+	stream, err = streamer(ctx, desc, cc, method, callOpts...)
+	done = true
 	return stream, err
 }

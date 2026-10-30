@@ -124,9 +124,9 @@ func (c *Composite) Allow() (breaker.Permit, error) {
 
 // Record settles a parent permit taken by Allow, refreshing the
 // open-children count first so the trip decision sees current children.
-func (c *Composite) Record(p breaker.Permit, outcome breaker.Outcome, elapsed time.Duration) {
+func (c *Composite) Record(p breaker.Permit, outcome breaker.Outcome, elapsed time.Duration, err error) {
 	c.refreshScan()
-	c.parent.Record(p, outcome, elapsed)
+	c.parent.Record(p, outcome, elapsed, err)
 }
 
 // ForceOpen opens the parent until ForceClose or Reset.
@@ -168,7 +168,8 @@ func (p tripPolicy) ShouldTrip(counts breaker.Counts) bool {
 		}
 	}
 	open, total := p.c.scanned()
-	if !p.c.trip(open, total, agg) {
+	// Total child outage fail-fast: every child is Open.
+	if total == 0 || (open < total && !p.c.trip(open, total, agg)) {
 		return false
 	}
 	frozen := new(breaker.Counts)

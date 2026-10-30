@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
@@ -78,18 +77,24 @@ func NewHTTPRoundTripper(next http.RoundTripper, opts ...Option) (http.RoundTrip
 	return &roundTripper{next: next, settings: s}, nil
 }
 
-// RoundTrip implements http.RoundTripper. A rejection returns a
-// *breaker.RejectedError without calling next. If next breaks the
-// http.RoundTripper contract and returns both a response and an error, the
-// body is closed and only the error is returned.
-func (t *roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+// RoundTrip implements http.RoundTripper through the breaker.
+func (t *roundTripper) RoundTrip(req *http.Request) (resp *http.Response, err error) {
 	b, p, err := t.settings.acquire(t.settings.httpKey(req))
 	if err != nil {
 		return nil, err
 	}
-	start := time.Now()
-	resp, err := t.next.RoundTrip(req)
-	b.Record(p, classifyHTTP(b, t.settings.httpClassifier, req.Context(), resp, err), time.Since(start))
+	start := b.Now()
+	done := false
+	defer func() {
+		elapsed := b.Now().Sub(start)
+		if !done {
+			b.Record(p, breaker.OutcomeFailure, elapsed, err)
+			return
+		}
+		b.Record(p, classifyHTTP(b, t.settings.httpClassifier, req.Context(), resp, err), elapsed, err)
+	}()
+	resp, err = t.next.RoundTrip(req)
+	done = true
 	if err != nil && resp != nil {
 		if resp.Body != nil {
 			_ = resp.Body.Close()

@@ -210,6 +210,17 @@ func (s *TCPSuite) TestClassifierPanicIsFailure() {
 	s.events.AssertCalled(s.T(), "OnHookPanic", hookClassifier, testClassifyPanic)
 }
 
+func (s *TCPSuite) TestDialPanicRecordsFailure() {
+	d, err := NewTCPDialer(s.next, WithBreaker(s.breaker))
+	s.Require().NoError(err)
+	s.next.On("DialContext", mock.Anything, testNetwork, testAddress).Panic("dial boom").Once()
+	s.Panics(func() {
+		_, _ = d.DialContext(context.Background(), testNetwork, testAddress)
+	})
+	s.Equal(uint32(1), s.breaker.Counts().Failures)
+	s.Equal(uint32(0), s.breaker.Snapshot().InFlight)
+}
+
 func (s *TCPSuite) TestRegistryErrorFailsDial() {
 	reg := testFailingRegistry(s.T())
 	d, err := NewTCPDialer(s.next, WithRegistry(reg))
@@ -375,7 +386,7 @@ func (s *TCPSuite) TestTrackedReadDoesNotHoldProbeSlot() {
 		p, err := s.breaker.Allow()
 		s.NoError(err, "a blocked Read must not occupy the probe slot")
 		s.True(p.IsProbe())
-		s.breaker.Record(p, breaker.OutcomeIgnored, 0)
+		s.breaker.Record(p, breaker.OutcomeIgnored, 0, nil)
 	}).Return(1, nil).Once()
 	n, err := conn.Read(buf)
 	s.NoError(err)

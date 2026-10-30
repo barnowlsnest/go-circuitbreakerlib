@@ -72,11 +72,14 @@ func WithScanInterval(d time.Duration) Option {
 	}
 }
 
-// WithParent sets options for the parent breaker. Policies must not be set;
-// Trip is the parent policy. ReopenEarly is reserved by the composite.
+// WithParent sets options for the parent breaker. Policies and ReopenEarly
+// must not be set; Trip and the composite reopen hook own those.
 func WithParent(opts ...breaker.Option) Option {
 	return func(o *options) error {
 		if err := breaker.ValidateNoPolicies(opts...); err != nil {
+			return err
+		}
+		if err := breaker.ValidateNoReopenEarly(opts...); err != nil {
 			return err
 		}
 		o.parentOpts = opts

@@ -106,12 +106,18 @@ func (b *Breaker) Counts() Counts {
 	return b.win.counts(now)
 }
 
+// Now returns the configured clock's current time.
+func (b *Breaker) Now() time.Time { return b.cfg.Clock() }
+
 // Snapshot returns one consistent read of the breaker's state.
 func (b *Breaker) Snapshot() Snapshot {
 	now := b.cfg.Clock()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	epoch, s := b.state()
+	if s == StateOpen && !b.forced.Load() && b.backoffDue(now) {
+		s = StateHalfOpen
+	}
 	return Snapshot{
 		OpenedAt: b.openedAt,
 		ReopenAt: b.base.Add(time.Duration(b.reopenAt.Load())),
@@ -124,51 +130,82 @@ func (b *Breaker) Snapshot() Snapshot {
 	}
 }
 
+const maxAllowRetries = 64
+
 // Allow asks to make a call. It returns a Permit to pass to Record, or a
 // *RejectedError wrapping ErrOpen or ErrTooManyProbes.
 func (b *Breaker) Allow() (Permit, error) {
+	for range maxAllowRetries {
+		now := b.cfg.Clock()
+		epoch, s := b.state()
+		switch s {
+		case StateClosed:
+			return Permit{epoch: epoch}, nil
+		case StateOpen:
+			if !b.forced.Load() {
+				if b.cfg.ReopenEarly != nil && b.reopenEarly() {
+					if p, again := b.toHalfOpen(epoch, now, ReasonEarlyHalfOpen); !again {
+						return p, nil
+					}
+					continue
+				}
+				if b.backoffDue(now) {
+					if p, again := b.toHalfOpen(epoch, now, ReasonTimeout); !again {
+						return p, nil
+					}
+					continue
+				}
+			}
+			b.reject(now, b.openRejected)
+			return Permit{}, b.openRejected
+		default:
+			if p, err, again := b.admitProbe(now); !again {
+				return p, err
+			}
+		}
+	}
+	return b.allowExhausted()
+}
+
+func (b *Breaker) allowExhausted() (Permit, error) {
 	now := b.cfg.Clock()
 	epoch, s := b.state()
 	switch s {
 	case StateClosed:
 		return Permit{epoch: epoch}, nil
-	case StateOpen:
-		if !b.forced.Load() {
-			if b.cfg.ReopenEarly != nil && b.reopenEarly() {
-				return b.toHalfOpen(epoch, now, ReasonEarlyHalfOpen)
-			}
-			if b.backoffDue(now) {
-				return b.toHalfOpen(epoch, now, ReasonTimeout)
-			}
-		}
+	case StateHalfOpen:
+		b.reject(now, b.halfOpenRejected)
+		return Permit{}, b.halfOpenRejected
+	default:
 		b.reject(now, b.openRejected)
 		return Permit{}, b.openRejected
-	default:
-		return b.admitProbe(now)
 	}
 }
 
 func (b *Breaker) reopenEarly() (ok bool) {
-	defer func() {
-		if r := recover(); r != nil {
-			ok = false
-			b.fireHookPanic(hookReopenEarly, r)
-		}
-	}()
+	defer b.recoverReopenEarly(&ok)
 	return b.cfg.ReopenEarly()
+}
+
+func (b *Breaker) recoverReopenEarly(ok *bool) {
+	if r := recover(); r != nil {
+		*ok = false
+		b.fireHookPanic(hookReopenEarly, r)
+	}
 }
 
 // toHalfOpen performs Open to HalfOpen under the lock. Exactly one caller
 // wins; the rest observe the new state and compete for probe slots. A caller
 // whose observed epoch is no longer current re-evaluates from scratch, so a
-// waiter never skips a backoff that started after it looked.
-func (b *Breaker) toHalfOpen(epoch uint64, now time.Time, reason Reason) (Permit, error) {
+// waiter never skips a backoff that started after it looked. again is true
+// when the caller must retry Allow.
+func (b *Breaker) toHalfOpen(epoch uint64, now time.Time, reason Reason) (p Permit, again bool) {
 	b.mu.Lock()
 	current, s := b.state()
 	stale := current != epoch || s != StateOpen || b.forced.Load()
 	if stale {
 		b.mu.Unlock()
-		return b.Allow()
+		return Permit{}, true
 	}
 	ev := b.transition(StateHalfOpen, reason, now)
 	b.win.reset()
@@ -177,15 +214,15 @@ func (b *Breaker) toHalfOpen(epoch uint64, now time.Time, reason Reason) (Permit
 	b.inFlight.Store(1)
 	b.mu.Unlock()
 	b.fireStateChange(ev)
-	return Permit{epoch: ev.Epoch, slot: 1}, nil
+	return Permit{epoch: ev.Epoch, slot: 1}, false
 }
 
-func (b *Breaker) admitProbe(now time.Time) (Permit, error) {
+func (b *Breaker) admitProbe(now time.Time) (p Permit, err error, again bool) {
 	b.mu.Lock()
 	epoch, s := b.state()
 	if s != StateHalfOpen {
 		b.mu.Unlock()
-		return b.Allow()
+		return Permit{}, nil, true
 	}
 	if b.probeExpired(now) {
 		ev, bp := b.open(now, ReasonProbeTimeout, b.attempt+1)
@@ -195,7 +232,7 @@ func (b *Breaker) admitProbe(now time.Time) (Permit, error) {
 		}
 		b.fireStateChange(ev)
 		b.reject(now, b.openRejected)
-		return Permit{}, b.openRejected
+		return Permit{}, b.openRejected, false
 	}
 	var slot uint32
 	for i, t := range b.probeAdmitted {
@@ -204,12 +241,12 @@ func (b *Breaker) admitProbe(now time.Time) (Permit, error) {
 			b.probeAdmitted[i] = b.rel(now) + 1
 			b.inFlight.Add(1)
 			b.mu.Unlock()
-			return Permit{epoch: epoch, slot: slot}, nil
+			return Permit{epoch: epoch, slot: slot}, nil, false
 		}
 	}
 	b.mu.Unlock()
 	b.reject(now, b.halfOpenRejected)
-	return Permit{}, b.halfOpenRejected
+	return Permit{}, b.halfOpenRejected, false
 }
 
 func (b *Breaker) probeExpired(now time.Time) bool {
@@ -223,9 +260,8 @@ func (b *Breaker) probeExpired(now time.Time) bool {
 	return false
 }
 
-// Record reports the outcome of a call admitted by Allow. Stale permits and
-// non-probe ignored outcomes return before taking the lock.
-func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration) {
+// Record reports the outcome of a call admitted by Allow.
+func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration, err error) {
 	if epoch, _ := b.state(); p.epoch != epoch {
 		return
 	}
@@ -254,7 +290,7 @@ func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration) {
 	for _, hp := range panics {
 		b.fireHookPanic(hp.name, hp.recovered)
 	}
-	b.fireCall(CallEvent{At: now, Name: b.cfg.Name, Elapsed: elapsed, State: s, Outcome: outcome, Slow: slow})
+	b.fireCall(CallEvent{At: now, Err: err, Name: b.cfg.Name, Elapsed: elapsed, State: s, Outcome: outcome, Slow: slow})
 	if changed {
 		b.fireStateChange(ev)
 	}
@@ -309,7 +345,7 @@ func (b *Breaker) openWith(now time.Time, reason Reason, attempt int, panics []h
 func (b *Breaker) tripped(now time.Time) (tripped Policy, panics []hookPanic) {
 	counts := b.win.counts(now)
 	for _, p := range b.cfg.Policies {
-		if trip, r := shouldTrip(p, counts); r != nil {
+		if trip, r := b.shouldTrip(p, counts); r != nil {
 			panics = append(panics, hookPanic{name: hookPolicy, recovered: r})
 		} else if trip {
 			return p, panics
@@ -318,14 +354,16 @@ func (b *Breaker) tripped(now time.Time) (tripped Policy, panics []hookPanic) {
 	return nil, panics
 }
 
-func shouldTrip(p Policy, c Counts) (trip bool, recovered any) {
-	defer func() {
-		if r := recover(); r != nil {
-			recovered = r
-			trip = false
-		}
-	}()
+func (b *Breaker) shouldTrip(p Policy, c Counts) (trip bool, recovered any) {
+	defer b.recoverShouldTrip(&trip, &recovered)
 	return p.ShouldTrip(c), nil
+}
+
+func (*Breaker) recoverShouldTrip(trip *bool, recovered *any) {
+	if r := recover(); r != nil {
+		*trip = false
+		*recovered = r
+	}
 }
 
 // open enters Open under the lock with the given attempt number. It returns
@@ -344,12 +382,14 @@ func (b *Breaker) delay(attempt int) (d time.Duration, recovered any) {
 	if b.cfg.Backoff == nil {
 		return b.cfg.OpenDuration, nil
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			d, recovered = b.cfg.OpenDuration, r
-		}
-	}()
+	defer b.recoverDelay(&d, &recovered)
 	return b.cfg.Backoff.Delay(attempt), nil
+}
+
+func (b *Breaker) recoverDelay(d *time.Duration, recovered *any) {
+	if r := recover(); r != nil {
+		*d, *recovered = b.cfg.OpenDuration, r
+	}
 }
 
 // close enters Closed under the lock.

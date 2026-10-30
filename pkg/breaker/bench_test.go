@@ -22,7 +22,7 @@ func BenchmarkAllowRecordClosedCount(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		p, _ := br.Allow()
-		br.Record(p, OutcomeSuccess, time.Millisecond)
+		br.Record(p, OutcomeSuccess, time.Millisecond, nil)
 	}
 }
 
@@ -31,7 +31,7 @@ func BenchmarkAllowRecordClosedTime(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		p, _ := br.Allow()
-		br.Record(p, OutcomeSuccess, time.Millisecond)
+		br.Record(p, OutcomeSuccess, time.Millisecond, nil)
 	}
 }
 

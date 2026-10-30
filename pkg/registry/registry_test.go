@@ -155,7 +155,7 @@ func (s *RegistrySuite) TestEventsInjectedWhenNil() {
 			s.Require().NoError(err)
 			p, err := b.Allow()
 			s.Require().NoError(err)
-			b.Record(p, breaker.OutcomeFailure, 0)
+			b.Record(p, breaker.OutcomeFailure, 0, nil)
 			tt.expectedEvents.AssertExpectations(s.T())
 		})
 	}

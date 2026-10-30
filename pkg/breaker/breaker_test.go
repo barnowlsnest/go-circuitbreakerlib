@@ -1,7 +1,9 @@
 package breaker
 
 import (
+	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -61,7 +63,7 @@ func (s *BreakerSuite) trip(b *Breaker) {
 	for range testTripCount {
 		p, err := b.Allow()
 		s.Require().NoError(err)
-		b.Record(p, OutcomeFailure, 0)
+		b.Record(p, OutcomeFailure, 0, nil)
 	}
 	s.Require().Equal(StateOpen, b.State())
 }
@@ -185,9 +187,9 @@ func (s *BreakerSuite) TestHalfOpenSuccessCloses() {
 	p1 := s.halfOpen(b)
 	p2, err := b.Allow()
 	s.Require().NoError(err)
-	b.Record(p1, OutcomeSuccess, 0)
+	b.Record(p1, OutcomeSuccess, 0, nil)
 	s.Equal(StateHalfOpen, b.State())
-	b.Record(p2, OutcomeSuccess, 0)
+	b.Record(p2, OutcomeSuccess, 0, nil)
 	s.Equal(StateClosed, b.State())
 	snap := b.Snapshot()
 	s.Equal(0, snap.Attempt)
@@ -204,7 +206,7 @@ func (s *BreakerSuite) TestHalfOpenFailureReopens() {
 	backoff.On("Delay", 1).Return(2 * testOpenDuration).Once()
 	b := s.mustNew(WithBackoff(backoff))
 	p := s.halfOpen(b)
-	b.Record(p, OutcomeFailure, 0)
+	b.Record(p, OutcomeFailure, 0, nil)
 	s.Equal(StateOpen, b.State())
 	s.Equal(1, b.Snapshot().Attempt)
 	s.events.AssertCalled(s.T(), "OnStateChange", mock.MatchedBy(func(ev StateChangeEvent) bool {
@@ -221,7 +223,7 @@ func (s *BreakerSuite) TestBackoffPanicFallsBackAndIsReported() {
 	}{
 		{name: "closed trip", panicAttempt: 0, open: func(b *Breaker) { s.trip(b) }},
 		{name: "half-open failure", panicAttempt: 1, open: func(b *Breaker) {
-			b.Record(s.halfOpen(b), OutcomeFailure, 0)
+			b.Record(s.halfOpen(b), OutcomeFailure, 0, nil)
 		}},
 		{name: "probe timeout", panicAttempt: 1, open: func(b *Breaker) {
 			p := s.halfOpen(b)
@@ -259,7 +261,7 @@ func (s *BreakerSuite) TestStalePermitDiscarded() {
 	s.halfOpen(b)
 	before := b.Snapshot()
 	calls := s.onCallCount()
-	b.Record(stale, OutcomeFailure, 0)
+	b.Record(stale, OutcomeFailure, 0, nil)
 	after := b.Snapshot()
 	s.Equal(StateHalfOpen, after.State)
 	s.Equal(before.InFlight, after.InFlight)
@@ -272,7 +274,7 @@ func (s *BreakerSuite) TestRecordAfterResetDiscarded() {
 	p, err := b.Allow()
 	s.Require().NoError(err)
 	b.Reset()
-	b.Record(p, OutcomeFailure, 0)
+	b.Record(p, OutcomeFailure, 0, nil)
 	s.Equal(uint32(0), b.Counts().Failures)
 }
 
@@ -280,7 +282,7 @@ func (s *BreakerSuite) TestIgnoredReleasesProbeSlot() {
 	b := s.mustNew()
 	p := s.halfOpen(b)
 	calls := s.onCallCount()
-	b.Record(p, OutcomeIgnored, 0)
+	b.Record(p, OutcomeIgnored, 0, nil)
 	s.Equal(uint32(0), b.Snapshot().InFlight)
 	s.Equal(StateHalfOpen, b.State())
 	s.Equal(calls, s.onCallCount())
@@ -290,7 +292,7 @@ func (s *BreakerSuite) TestIgnoredInClosedIsLockFreeAndUncounted() {
 	b := s.mustNew()
 	p, err := b.Allow()
 	s.Require().NoError(err)
-	b.Record(p, OutcomeIgnored, 0)
+	b.Record(p, OutcomeIgnored, 0, nil)
 	s.Equal(uint32(0), b.Counts().Total)
 	s.events.AssertNotCalled(s.T(), "OnCall", mock.Anything)
 }
@@ -300,8 +302,8 @@ func (s *BreakerSuite) TestTwoSlotRelease() {
 	p1 := s.halfOpen(b)
 	p2, err := b.Allow()
 	s.Require().NoError(err)
-	b.Record(p1, OutcomeIgnored, 0)
-	b.Record(p2, OutcomeSuccess, 0)
+	b.Record(p1, OutcomeIgnored, 0, nil)
+	b.Record(p2, OutcomeSuccess, 0, nil)
 	s.Equal(StateClosed, b.State())
 	s.Equal(uint32(0), b.Snapshot().InFlight)
 }
@@ -323,7 +325,7 @@ func (s *BreakerSuite) TestForceClosePinsAndRecords() {
 	for range testRejections {
 		p, err := b.Allow()
 		s.Require().NoError(err)
-		b.Record(p, OutcomeFailure, 0)
+		b.Record(p, OutcomeFailure, 0, nil)
 	}
 	s.Equal(StateClosed, b.State())
 	s.Equal(uint32(testRejections), b.Counts().Failures)
@@ -366,7 +368,7 @@ func (s *BreakerSuite) TestClosingRecordPolicyTrips() {
 		WithSlowCallDuration(slow),
 	)
 	p := s.halfOpen(b)
-	b.Record(p, OutcomeSuccess, 2*slow)
+	b.Record(p, OutcomeSuccess, 2*slow, nil)
 	s.Equal(StateOpen, b.State())
 	s.Equal(1, b.Snapshot().Attempt)
 	s.events.AssertCalled(s.T(), "OnStateChange", mock.MatchedBy(func(ev StateChangeEvent) bool {
@@ -384,7 +386,7 @@ func (s *BreakerSuite) TestPolicyPanicCountsFailureAndFiresHook() {
 	b := s.mustNew(WithPolicies(policy))
 	p, err := b.Allow()
 	s.Require().NoError(err)
-	s.NotPanics(func() { b.Record(p, OutcomeSuccess, 0) })
+	s.NotPanics(func() { b.Record(p, OutcomeSuccess, 0, nil) })
 	s.Equal(StateClosed, b.State())
 	s.events.AssertCalled(s.T(), "OnHookPanic", "policy", "policy boom")
 }
@@ -409,7 +411,7 @@ func (s *BreakerSuite) TestHookPanicSwallowedAndReported() {
 			b := s.mustNew(WithEvents(events))
 			p, err := b.Allow()
 			s.Require().NoError(err)
-			s.NotPanics(func() { b.Record(p, OutcomeSuccess, 0) })
+			s.NotPanics(func() { b.Record(p, OutcomeSuccess, 0, nil) })
 			s.Equal(tt.expectedCount, b.HookPanics())
 			events.AssertExpectations(s.T())
 		})
@@ -544,15 +546,62 @@ func (s *BreakerSuite) TestStaleWaiterDoesNotSkipBackoff() {
 	staleEpoch, _ := b.state()
 	p, err := b.Allow()
 	s.Require().NoError(err)
-	b.Record(p, OutcomeFailure, 0)
+	b.Record(p, OutcomeFailure, 0, nil)
 	s.Require().Equal(StateOpen, b.State())
 	expected := b.Snapshot()
 
-	actual, err := b.toHalfOpen(staleEpoch, now, ReasonTimeout)
+	actual, again := b.toHalfOpen(staleEpoch, now, ReasonTimeout)
 
-	s.Require().ErrorIs(err, ErrOpen)
+	s.True(again)
 	s.False(actual.IsProbe())
+	_, err = b.Allow()
+	s.Require().ErrorIs(err, ErrOpen)
 	s.Equal(StateOpen, b.State())
 	s.Equal(expected.Epoch, b.Snapshot().Epoch)
 	s.Equal(expected.Attempt, b.Snapshot().Attempt)
+}
+
+func (s *BreakerSuite) TestTenThousandBreakersDoNotSpawnGoroutines() {
+	const n = 10_000
+	before := runtime.NumGoroutine()
+	breakers := make([]*Breaker, 0, n)
+	for i := range n {
+		b, err := New(WithName(testName), WithClock(s.clock.Now), WithEvents(s.events))
+		s.Require().NoError(err)
+		breakers = append(breakers, b)
+		_ = i
+	}
+	s.Equal(before, runtime.NumGoroutine())
+	s.Len(breakers, n)
+}
+
+func (s *BreakerSuite) TestThousandCanceledRecordsStayClosed() {
+	const n = 1000
+	b := s.mustNew()
+	for range n {
+		p, err := b.Allow()
+		s.Require().NoError(err)
+		b.Record(p, OutcomeIgnored, 0, context.Canceled)
+	}
+	s.Equal(StateClosed, b.State())
+	s.Equal(uint32(0), b.Counts().Total)
+}
+
+func (s *BreakerSuite) TestTwentyDeadlineFailuresOpen() {
+	const n = 20
+	b := s.mustNew(WithPolicies(ConsecutiveFailures{Count: n}))
+	for range n {
+		p, err := b.Allow()
+		s.Require().NoError(err)
+		b.Record(p, OutcomeFailure, 0, context.DeadlineExceeded)
+	}
+	s.Equal(StateOpen, b.State())
+}
+
+func (s *BreakerSuite) TestSnapshotMatchesLazyState() {
+	b := s.mustNew()
+	s.trip(b)
+	s.clock.advance(testOpenDuration)
+	s.Equal(StateHalfOpen, b.State())
+	s.Equal(StateHalfOpen, b.Snapshot().State)
 }

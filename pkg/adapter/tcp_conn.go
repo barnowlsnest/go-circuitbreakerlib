@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"syscall"
-	"time"
 
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
@@ -104,8 +103,9 @@ const (
 	writeOp ioKind = false
 )
 
-// track runs op on c under one permit and records its outcome.
-func track[N int | int64](c *trackedConn, op func() (N, error), kind ioKind) (N, error) {
+// track runs op on c under one permit and records its outcome in a defer,
+// so a panicking op records a failure before the panic propagates.
+func track[N int | int64](c *trackedConn, op func() (N, error), kind ioKind) (n N, err error) {
 	p, tracked, err := c.allow(kind)
 	if err != nil {
 		return 0, err
@@ -113,9 +113,18 @@ func track[N int | int64](c *trackedConn, op func() (N, error), kind ioKind) (N,
 	if !tracked {
 		return op()
 	}
-	start := time.Now()
-	n, err := op()
-	c.breaker.Record(p, classifyIO(p, err), time.Since(start))
+	start := c.breaker.Now()
+	done := false
+	defer func() {
+		elapsed := c.breaker.Now().Sub(start)
+		if !done {
+			c.breaker.Record(p, breaker.OutcomeFailure, elapsed, err)
+			return
+		}
+		c.breaker.Record(p, classifyIO(p, err), elapsed, err)
+	}()
+	n, err = op()
+	done = true
 	return n, err
 }
 
@@ -128,7 +137,7 @@ func (c *trackedConn) allow(kind ioKind) (p breaker.Permit, tracked bool, err er
 		return breaker.Permit{}, false, rejectConn(err)
 	}
 	if kind == readOp && p.IsProbe() {
-		c.breaker.Record(p, breaker.OutcomeIgnored, 0)
+		c.breaker.Record(p, breaker.OutcomeIgnored, 0, nil)
 		return breaker.Permit{}, false, nil
 	}
 	return p, true, nil

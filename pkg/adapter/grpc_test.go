@@ -248,6 +248,21 @@ func (s *GRPCSuite) TestClassifierPanicIsFailure() {
 	s.events.AssertCalled(s.T(), "OnHookPanic", hookClassifier, testClassifyPanic)
 }
 
+func (s *GRPCSuite) TestInvokerPanicRecordsFailure() {
+	unary, err := NewGRPCUnaryInterceptor(WithBreaker(s.breaker), WithGRPCKey(
+		func(context.Context, string, *grpc.ClientConn) string { return testName },
+	))
+	s.Require().NoError(err)
+	s.Panics(func() {
+		_ = unary(context.Background(), "/test.Service/Method", nil, nil, nil,
+			func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error {
+				panic("invoker boom")
+			})
+	})
+	s.Equal(uint32(1), s.breaker.Counts().Failures)
+	s.Equal(uint32(0), s.breaker.Snapshot().InFlight)
+}
+
 func (s *GRPCSuite) TestRejectedErrorUnwraps() {
 	re := &breaker.RejectedError{Err: breaker.ErrOpen, Name: testName, State: breaker.StateOpen}
 	err := &grpcRejectedError{RejectedError: re, code: codes.Unavailable}

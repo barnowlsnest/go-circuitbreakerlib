@@ -165,6 +165,19 @@ func (s *ExecuteSuite) TestNilFunc() {
 	s.ErrorIs(err, ErrNilFunc)
 }
 
+func (s *ExecuteSuite) TestCallEventErrWired() {
+	callErr := errors.New("dep failed")
+	s.fn.On("Call", s.ctx).Return(callErr).Once()
+	s.classifier.On("Classify", s.ctx, callErr).Return(OutcomeFailure).Once()
+	s.events = &MockEvents{}
+	s.events.On("OnCall", mock.MatchedBy(func(ev CallEvent) bool {
+		return errors.Is(ev.Err, callErr) && ev.Outcome == OutcomeFailure
+	})).Once()
+	s.events.On("OnStateChange", mock.Anything).Maybe()
+	b := s.newBreaker()
+	s.ErrorIs(b.Execute(s.ctx, s.fn.Call), callErr)
+}
+
 func (s *ExecuteSuite) TestElapsedMeasured() {
 	s.clock.ExpectedCalls = nil
 	start := newTestClock().now

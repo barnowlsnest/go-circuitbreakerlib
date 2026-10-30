@@ -64,6 +64,12 @@ func (s *ConfigSuite) TestDefaults() {
 	s.Nil(cfg.Backoff)
 }
 
+func (s *ConfigSuite) TestWithPoliciesEmptyErrors() {
+	_, err := New(WithName("x"), WithPolicies())
+	s.ErrorIs(err, ErrInvalidConfig)
+	s.ErrorIs(err, ErrEmptyPolicies)
+}
+
 func (s *ConfigSuite) TestSuccessesIndependentOfMaxCalls() {
 	cfg, err := (&config{Name: "x", HalfOpenMaxCalls: 1, HalfOpenSuccesses: 3}).withDefaults()
 	s.NoError(err)

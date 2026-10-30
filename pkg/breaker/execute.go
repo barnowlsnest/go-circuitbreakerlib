@@ -26,10 +26,10 @@ func (b *Breaker) Execute(ctx context.Context, fn func(ctx context.Context) erro
 	defer func() {
 		elapsed := b.cfg.Clock().Sub(start)
 		if !done {
-			b.Record(p, OutcomeFailure, elapsed)
+			b.Record(p, OutcomeFailure, elapsed, callErr)
 			return
 		}
-		b.Record(p, b.classify(ctx, callErr), elapsed)
+		b.Record(p, b.classify(ctx, callErr), elapsed, callErr)
 	}()
 	callErr = fn(ctx)
 	done = true
@@ -51,11 +51,13 @@ func Do[T any](ctx context.Context, b *Breaker, fn func(ctx context.Context) (T,
 }
 
 func (b *Breaker) classify(ctx context.Context, err error) (o Outcome) {
-	defer func() {
-		if r := recover(); r != nil {
-			o = OutcomeFailure
-			b.fireHookPanic(hookClassifier, r)
-		}
-	}()
+	defer b.recoverClassify(&o)
 	return b.cfg.Classifier(ctx, err)
+}
+
+func (b *Breaker) recoverClassify(o *Outcome) {
+	if r := recover(); r != nil {
+		*o = OutcomeFailure
+		b.fireHookPanic(hookClassifier, r)
+	}
 }

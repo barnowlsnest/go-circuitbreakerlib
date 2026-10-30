@@ -40,8 +40,9 @@ follows and reuses:
    rate limiting of the high-volume events (rejections, failures) so a bad
    dependency cannot flood logs under load.
 8. **High-load ready**: no allocations on the hot path with `NoopEvents`,
-   atomic state reads, no global locks, no goroutines or timers owned by a
-   breaker, context honored everywhere.
+   atomic state reads, no per-breaker goroutines or timers, context honored
+   everywhere. Composite attach/detach shares one process-wide topology
+   mutex (rare path); request paths do not take it.
 
 ## Non-goals
 
@@ -445,8 +446,10 @@ Provided policies:
 - `SlowCallRate{Threshold float64, MinCalls uint32}` — `Slow/Total >= Threshold` and `Total >= MinCalls`.
 - `FailureCount{Count uint32}` — `Failures >= Count` in the window.
 
-`Config.Policies []Policy`. Any policy returning true trips the breaker. An
-empty list defaults to `[]Policy{FailureRate{0.5, 20}, ConsecutiveFailures{5}}`.
+`Config.Policies []Policy`. Any policy returning true trips the breaker.
+Omit `WithPolicies` to get
+`[]Policy{FailureRate{0.5, 20}, ConsecutiveFailures{5}}`. An empty
+`WithPolicies()` call is `ErrInvalidConfig` / `ErrEmptyPolicies`.
 
 Policies run at two points: after every `Record` in Closed, and **once on
 the closing Record in HalfOpen** (the one that reaches `HalfOpenSuccesses`),
@@ -503,6 +506,8 @@ When unset, `OpenDuration` (default 30s) is used. Provided in-core:
 
 - `ExponentialBackoff{Base time.Duration, Max time.Duration, Jitter bool}` —
   small local implementation (jitter via `math/rand/v2`, no syscalls).
+  `Max == 0` means uncapped. `WithBackoff` rejects `Base <= 0` or
+  `Max < Base` when `Max > 0`.
 
 ### Options
 
@@ -512,7 +517,7 @@ type Option func(*options) error
 func New(opts ...Option) (*Breaker, error)
 
 func WithName(name string) Option                          // required; used in events and logs
-func WithPolicies(policies ...Policy) Option               // default FailureRate{0.5,20} + ConsecutiveFailures{5}
+func WithPolicies(policies ...Policy) Option               // omit for defaults; empty list errors
 func WithWindow(w WindowSpec) Option                       // default SlidingTimeWindow{10s, 10}
 func WithBackoff(b Backoff) Option                         // overrides OpenDuration when set
 func WithEvents(ev Events) Option                          // default NoopEvents
@@ -538,7 +543,7 @@ matches both sentinels and no prefix is duplicated in the message.
 ```go
 // Low-level, allocation-free pair for adapters and hot loops.
 func (b *Breaker) Allow() (Permit, error)   // nil, ErrOpen, ErrTooManyProbes
-func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration)
+func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration, err error)
 
 // Convenience; classifies with ctx, records via defer (also on panic).
 func (b *Breaker) Execute(ctx context.Context, fn func(ctx context.Context) error) error
@@ -546,6 +551,7 @@ func Do[T any](ctx context.Context, b *Breaker, fn func(ctx context.Context) (T,
 
 // Introspection / control.
 func (b *Breaker) Name() string
+func (b *Breaker) Now() time.Time      // configured clock; adapters use this for elapsed
 func (b *Breaker) State() State        // lazy read-only view
 func (b *Breaker) Counts() Counts      // lazy read-only view
 func (b *Breaker) Snapshot() Snapshot  // one consistent read of everything below
@@ -569,12 +575,13 @@ type Snapshot struct {
 
 `Execute` semantics: check `ctx.Err()` first (returns it unchanged, not
 recorded); `Allow`; on rejection return the rejection error **without**
-calling `fn`; else time `fn`, classify with `ctx`, `Record` via `defer`,
-return `fn`'s error unchanged. A panic in `fn` records `OutcomeFailure` and
-re-panics. Rejection errors are `*RejectedError`, which unwraps to `ErrOpen`
-or `ErrTooManyProbes`. Both rejection values (`ErrOpen` in Open,
-`ErrTooManyProbes` in HalfOpen) are pre-allocated per breaker and immutable,
-so every rejection path is 0 allocs.
+calling `fn`; else time `fn`, classify with `ctx`, `Record` via `defer`
+(passing `fn`'s error into `CallEvent.Err`), return `fn`'s error unchanged.
+A panic in `fn` records `OutcomeFailure` and re-panics. Rejection errors are
+`*RejectedError`, which unwraps to `ErrOpen` or `ErrTooManyProbes`. Both
+rejection values (`ErrOpen` in Open, `ErrTooManyProbes` in HalfOpen) are
+pre-allocated per breaker and must be treated as immutable by callers, so
+every rejection path is 0 allocs.
 
 ### Errors
 
@@ -798,7 +805,9 @@ leaf selection happens through `Pick` (below).
   would double-record and break depth accounting). `RemoveChild(id string)`,
   `Child(id string) (Child, bool)`, `Children() []string`.
 - Children live in an atomically swapped immutable slice; `AddChild` /
-  `AttachChild` / `RemoveChild` copy-on-write under a mutex.
+  `AttachChild` / `RemoveChild` copy-on-write under a **process-wide
+  topology mutex** so concurrent attaches cannot both pass cycle checks
+  against a stale tree. Request paths never take this lock.
 - **Open-children count is computed by scanning the slice** and calling each
   child's lock-free lazy `State()`; a child whose backoff has elapsed reports
   HalfOpen and is not counted as open. No event interception, so
@@ -820,8 +829,8 @@ leaf selection happens through `Pick` (below).
 // Lease is a value type (no allocation). It holds the permits taken along
 // the path from this composite down to the leaf.
 type Lease struct {
-    Leaf  *breaker.Breaker
-    path  [MaxDepth]hop // hop = {child Child, permit breaker.Permit}
+    Leaf  Child // admitting leaf breaker
+    // path hops and permits are unexported; MaxDepth bounds the stack
     depth uint8
 }
 
@@ -829,7 +838,7 @@ func (l Lease) ID() string        // leaf id
 func (l Lease) Path() []string    // allocates; for logging only
 
 func (c *Composite) Pick() (Lease, error)
-func (c *Composite) Record(l Lease, outcome breaker.Outcome, elapsed time.Duration)
+func (c *Composite) RecordLease(l Lease, outcome breaker.Outcome, elapsed time.Duration, err error)
 func (c *Composite) Execute(ctx context.Context, fn func(ctx context.Context, leaf string) error) error
 ```
 
@@ -838,12 +847,14 @@ func (c *Composite) Execute(ctx context.Context, fn func(ctx context.Context, le
   index; for a leaf child call `Allow`, for a composite child recurse. The
   first child that admits wins. **A sub-composite that admitted its own
   permit but found no admitting leaf releases that permit (`Record` with
-  `OutcomeIgnored`) before returning**, so the outer loop continues to the
-  next sibling and no intermediate permit is held until `ProbeTimeout`. If
-  no child admits at the top level, every permit taken is released the same
-  way and `ErrNoHealthyChildren` is returned; it unwraps to `ErrOpen`, and
-  the `RejectedError.State` is the parent's own state (typically Closed),
-  which the godoc states explicitly.
+  `OutcomeFailure` after a forced rescan) before returning**, so the outer
+  loop continues to the next sibling and no intermediate permit is held
+  until `ProbeTimeout`. If no child admits at any level, the release is the
+  same: failure is recorded so the parent's trip policy runs. When every
+  child is Open (`open == total` and `total > 0`), the parent trips
+  immediately (fail-fast total outage). `ErrNoHealthyChildren` is returned;
+  it unwraps to `ErrOpen`, and `RejectedError.State` is the parent's own
+  state (Open after a total-outage trip; Closed when there are no children).
 - `Record`: records on the leaf and on every composite along the path with
   the permits stored in the `Lease`. Each hop is epoch-checked
   independently, so a straggler may be counted on some hops and discarded
@@ -1141,8 +1152,10 @@ each merge the next PR's base is retargeted to `main`.
     validated, declarative construction. Construction only.
 15. `Permit` epochs make late results harmless; this is why `Record` takes a
     `Permit` and not just an outcome.
-16. `State()` and `Counts()` are lazy, lock-free, read-only views, never
-    stale.
+16. `State()` is a lazy, lock-free, read-only view (Open reports HalfOpen
+    when backoff is due). `Counts()` is lazy and takes the breaker mutex
+    because the window is not concurrent-safe. `Snapshot().State` matches
+    the same lazy view as `State()`.
 17. Default window is time-based (10s / 10 buckets).
 18. 429 is Success by default.
 19. Deadline errors on a tracked TCP conn are Ignored.

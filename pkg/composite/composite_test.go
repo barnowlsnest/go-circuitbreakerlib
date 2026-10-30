@@ -116,7 +116,7 @@ func (s *baseSuite) trip(b *breaker.Breaker) {
 	s.T().Helper()
 	p, err := b.Allow()
 	s.Require().NoError(err)
-	b.Record(p, breaker.OutcomeFailure, 0)
+	b.Record(p, breaker.OutcomeFailure, 0, nil)
 	s.Require().Equal(breaker.StateOpen, b.State())
 	s.clock.advance(testScanInterval)
 }
@@ -138,7 +138,7 @@ func (s *baseSuite) record(c *Composite, n, failures int) {
 		if i < failures {
 			outcome = breaker.OutcomeFailure
 		}
-		c.RecordLease(l, outcome, 0)
+		c.RecordLease(l, outcome, 0, nil)
 	}
 }
 
@@ -155,6 +155,16 @@ func (s *CompositeSuite) TestInvalidConfig() {
 				breaker.WithHalfOpenMaxCalls(testHalfOpenCalls),
 				breaker.WithClock(s.clock.Now),
 				breaker.WithPolicies(breaker.ConsecutiveFailures{Count: 1}),
+			)),
+			expectedErr: ErrInvalidConfig,
+		},
+		{
+			name: "parent reopen early",
+			opts: append(s.opts(testName, nil), WithParent(
+				breaker.WithOpenDuration(testParentOpen),
+				breaker.WithHalfOpenMaxCalls(testHalfOpenCalls),
+				breaker.WithClock(s.clock.Now),
+				breaker.WithReopenEarly(func() bool { return true }),
 			)),
 			expectedErr: ErrInvalidConfig,
 		},
@@ -295,7 +305,7 @@ func (s *CompositeSuite) TestScanThrottled() {
 	c, leaves := s.mustNew(nil, "a", "b")
 	p, err := leaves["a"].Allow()
 	s.Require().NoError(err)
-	leaves["a"].Record(p, breaker.OutcomeFailure, 0)
+	leaves["a"].Record(p, breaker.OutcomeFailure, 0, nil)
 	s.Require().Equal(breaker.StateOpen, leaves["a"].State())
 	c.refreshScan()
 	s.Equal(0, c.cachedOpen(), "inside the interval the cache is kept")
@@ -351,7 +361,7 @@ func (s *CompositeSuite) TestEventsDefaults() {
 			_, err = c.Pick()
 			s.Require().ErrorIs(err, ErrNoHealthyChildren)
 			tt.expectedParent.AssertCalled(s.T(), "OnReject", mock.MatchedBy(func(ev breaker.RejectEvent) bool {
-				return ev.Name == testName && errors.Is(ev.Err, ErrNoHealthyChildren) && ev.State == breaker.StateClosed
+				return ev.Name == testName && errors.Is(ev.Err, ErrNoHealthyChildren) && ev.State == breaker.StateOpen
 			}))
 		})
 	}
@@ -411,7 +421,7 @@ func (s *CompositeSuite) TestReopenEarlyWhenChildrenRecover() {
 	s.events.AssertCalled(s.T(), "OnStateChange", mock.MatchedBy(func(ev breaker.StateChangeEvent) bool {
 		return ev.Name == testName && ev.To == breaker.StateHalfOpen && ev.Reason == breaker.ReasonEarlyHalfOpen
 	}))
-	c.RecordLease(l, breaker.OutcomeSuccess, 0)
+	c.RecordLease(l, breaker.OutcomeSuccess, 0, nil)
 	s.Equal(breaker.StateClosed, c.State())
 	s.False(c.frozen())
 }
@@ -445,7 +455,7 @@ func (s *CompositeSuite) TestClosingRecheckReopens() {
 	s.Require().NoError(err)
 	s.Equal("c", l.ID())
 	s.Equal(breaker.StateHalfOpen, c.State())
-	c.RecordLease(l, breaker.OutcomeSuccess, 0)
+	c.RecordLease(l, breaker.OutcomeSuccess, 0, nil)
 	snap := c.Snapshot()
 	s.Equal(breaker.StateOpen, snap.State)
 	s.Equal(1, snap.Attempt)
@@ -465,7 +475,7 @@ func (s *CompositeSuite) TestTripAggregateClearedOnClose() {
 	s.clock.advance(testParentOpen)
 	l, err := c.Pick()
 	s.Require().NoError(err)
-	c.RecordLease(l, breaker.OutcomeSuccess, 0)
+	c.RecordLease(l, breaker.OutcomeSuccess, 0, nil)
 	s.Equal(breaker.StateClosed, c.State())
 	s.False(c.frozen())
 	s.events.AssertCalled(s.T(), "OnStateChange", mock.MatchedBy(func(ev breaker.StateChangeEvent) bool {

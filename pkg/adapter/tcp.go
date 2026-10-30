@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"time"
 
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
@@ -83,15 +82,25 @@ func NewTCPDialer(next ContextDialer, opts ...Option) (*TCPDialer, error) {
 
 // DialContext dials through the breaker. A rejection returns a
 // *breaker.RejectedError without dialing. With WithTCPTrackIO the returned
-// conn is wrapped; see trackedConn.
-func (d *TCPDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+// conn is wrapped; see trackedConn. Recording happens in a defer, so a
+// panicking dialer records a failure before the panic propagates.
+func (d *TCPDialer) DialContext(ctx context.Context, network, address string) (conn net.Conn, err error) {
 	b, p, err := d.settings.acquire(d.settings.tcpKey(network, address))
 	if err != nil {
 		return nil, err
 	}
-	start := time.Now()
-	conn, err := d.next.DialContext(ctx, network, address)
-	b.Record(p, classifyTCP(b, d.settings.tcpClassifier, ctx, err), time.Since(start))
+	start := b.Now()
+	done := false
+	defer func() {
+		elapsed := b.Now().Sub(start)
+		if !done {
+			b.Record(p, breaker.OutcomeFailure, elapsed, err)
+			return
+		}
+		b.Record(p, classifyTCP(b, d.settings.tcpClassifier, ctx, err), elapsed, err)
+	}()
+	conn, err = d.next.DialContext(ctx, network, address)
+	done = true
 	if err != nil {
 		return nil, err
 	}

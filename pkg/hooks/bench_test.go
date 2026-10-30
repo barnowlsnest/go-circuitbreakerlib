@@ -48,7 +48,7 @@ func benchAllowRecord(b *testing.B, br *breaker.Breaker, outcome breaker.Outcome
 		if err != nil {
 			b.Fatal(err)
 		}
-		br.Record(p, outcome, 0)
+		br.Record(p, outcome, 0, nil)
 	}
 }
 

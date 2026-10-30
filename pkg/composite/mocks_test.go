@@ -51,7 +51,9 @@ func (m *MockChild) Allow() (breaker.Permit, error) {
 	args := m.Called()
 	return args.Get(0).(breaker.Permit), args.Error(1)
 }
-func (m *MockChild) Record(p breaker.Permit, o breaker.Outcome, d time.Duration) { m.Called(p, o, d) }
+func (m *MockChild) Record(p breaker.Permit, o breaker.Outcome, d time.Duration, err error) {
+	m.Called(p, o, d, err)
+}
 
 // MockFunc is a testify mock of the function Execute runs.
 type MockFunc struct {

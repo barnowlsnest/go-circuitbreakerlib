@@ -35,7 +35,7 @@ func ExampleNewLogEvents() {
 		panic(err)
 	}
 	p, _ := b.Allow()
-	b.Record(p, breaker.OutcomeFailure, 0)
+	b.Record(p, breaker.OutcomeFailure, 0, nil)
 	_, err = b.Allow()
 	fmt.Println(err)
 	// Output:

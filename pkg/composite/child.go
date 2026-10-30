@@ -23,7 +23,7 @@ type Child interface {
 	Name() string
 	State() breaker.State
 	Allow() (breaker.Permit, error)
-	Record(p breaker.Permit, outcome breaker.Outcome, elapsed time.Duration)
+	Record(p breaker.Permit, outcome breaker.Outcome, elapsed time.Duration, err error)
 }
 
 // AddChild builds a leaf from WithChild options and attaches it. The leaf

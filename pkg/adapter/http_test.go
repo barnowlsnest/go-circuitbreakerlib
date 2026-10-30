@@ -189,6 +189,22 @@ func (s *HTTPSuite) TestClassifierPanicIsFailure() {
 	s.events.AssertCalled(s.T(), "OnHookPanic", hookClassifier, testClassifyPanic)
 }
 
+func (s *HTTPSuite) TestRoundTripPanicRecordsFailure() {
+	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
+	s.Require().NoError(err)
+	req := s.request(context.Background(), testURL)
+	s.next.On("RoundTrip", req).Panic("transport boom").Once()
+	s.Panics(func() {
+		resp, roundTripErr := rt.RoundTrip(req)
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		_ = roundTripErr
+	})
+	s.Equal(uint32(1), s.breaker.Counts().Failures)
+	s.Equal(uint32(0), s.breaker.Snapshot().InFlight)
+}
+
 func (s *HTTPSuite) TestRejectedWhenOpen() {
 	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
 	s.Require().NoError(err)

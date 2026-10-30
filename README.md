@@ -126,7 +126,7 @@ outcome := breaker.OutcomeSuccess
 if err != nil {
 	outcome = breaker.OutcomeFailure
 }
-b.Record(p, outcome, time.Since(start))
+b.Record(p, outcome, time.Since(start), err)
 ```
 
 ### Configuration

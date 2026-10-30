@@ -25,6 +25,7 @@ type options struct {
 	halfOpenMaxCalls  uint32
 	halfOpenSuccesses uint32
 	policiesSet       bool
+	reopenEarlySet    bool
 }
 
 // WithName sets the breaker name used in events and logs. name must be
@@ -39,10 +40,12 @@ func WithName(name string) Option {
 	}
 }
 
-// WithPolicies replaces the trip policies. The default is FailureRate{0.5, 20}
-// and ConsecutiveFailures{5}. A nil element is an error.
+// WithPolicies replaces the trip policies.
 func WithPolicies(policies ...Policy) Option {
 	return func(o *options) error {
+		if len(policies) == 0 {
+			return errors.Join(ErrInvalidConfig, ErrEmptyPolicies)
+		}
 		for i, p := range policies {
 			if p == nil {
 				return fmt.Errorf("%w: %w at %d", ErrInvalidConfig, ErrNilPolicy, i)
@@ -66,11 +69,24 @@ func WithWindow(w WindowSpec) Option {
 	}
 }
 
-// WithBackoff sets the open-state delay. When unset, OpenDuration is used.
+// WithBackoff sets the open-state delay.
 func WithBackoff(b Backoff) Option {
 	return func(o *options) error {
 		if b == nil {
 			return fmt.Errorf("%w: nil backoff", ErrInvalidOption)
+		}
+		switch eb := b.(type) {
+		case ExponentialBackoff:
+			if err := eb.validate(); err != nil {
+				return err
+			}
+		case *ExponentialBackoff:
+			if eb == nil {
+				return fmt.Errorf("%w: nil backoff", ErrInvalidOption)
+			}
+			if err := eb.validate(); err != nil {
+				return err
+			}
 		}
 		o.backoff = b
 		return nil
@@ -130,6 +146,7 @@ func WithClock(fn func() time.Time) Option {
 func WithReopenEarly(fn func() bool) Option {
 	return func(o *options) error {
 		o.reopenEarly = fn
+		o.reopenEarlySet = true
 		return nil
 	}
 }
@@ -206,6 +223,19 @@ func ValidateNoPolicies(opts ...Option) error {
 	}
 	if o.policiesSet {
 		return fmt.Errorf("%w: policies must be empty, Trip is the parent policy", ErrInvalidConfig)
+	}
+	return nil
+}
+
+// ValidateNoReopenEarly returns an error if opts include WithReopenEarly.
+// Composite uses it so its trip-based reopen stays the only parent reopen.
+func ValidateNoReopenEarly(opts ...Option) error {
+	o, err := applyOptions(opts...)
+	if err != nil {
+		return err
+	}
+	if o.reopenEarlySet {
+		return fmt.Errorf("%w: ReopenEarly is reserved by the composite", ErrInvalidConfig)
 	}
 	return nil
 }

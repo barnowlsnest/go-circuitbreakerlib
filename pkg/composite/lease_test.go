@@ -49,7 +49,7 @@ func (s *LeaseSuite) TestPickRoundRobinSkipsOpen() {
 		l, err := c.Pick()
 		s.Require().NoError(err)
 		picked = append(picked, l.ID())
-		c.RecordLease(l, breaker.OutcomeSuccess, 0)
+		c.RecordLease(l, breaker.OutcomeSuccess, 0, nil)
 	}
 	for i, id := range picked {
 		s.Contains([]string{"a", "c"}, id)
@@ -74,7 +74,7 @@ func (s *LeaseSuite) TestPickRejected() {
 			leaves:        []string{"a", "b"},
 			forceLeaves:   true,
 			expectedErr:   ErrNoHealthyChildren,
-			expectedState: breaker.StateClosed,
+			expectedState: breaker.StateOpen,
 		},
 		{name: "no children", leaves: nil, expectedErr: ErrNoHealthyChildren, expectedState: breaker.StateClosed},
 	}
@@ -104,12 +104,22 @@ func (s *LeaseSuite) TestPickRejected() {
 	}
 }
 
+func (s *LeaseSuite) TestAllOpenChildrenTripsOpenChildrenPolicy() {
+	c, leaves := s.mustNew(s.openChildren(2), "a", "b", "c")
+	s.forceOpen(leaves["a"])
+	s.forceOpen(leaves["b"])
+	s.forceOpen(leaves["c"])
+	_, err := c.Pick()
+	s.ErrorIs(err, ErrNoHealthyChildren)
+	s.Equal(breaker.StateOpen, c.State())
+}
+
 func (s *LeaseSuite) TestRecordHitsLeafAndParent() {
 	c, leaves := s.mustNew(nil, "a")
 	l, err := c.Pick()
 	s.Require().NoError(err)
 	s.Equal([]string{testName, "a"}, l.Path())
-	c.RecordLease(l, breaker.OutcomeFailure, 0)
+	c.RecordLease(l, breaker.OutcomeFailure, 0, nil)
 	s.Equal(breaker.Counts{Total: 1, Failures: 1, ConsecutiveFailures: 1}, leaves["a"].Counts())
 	s.Equal(breaker.Counts{Total: 1, Failures: 1, ConsecutiveFailures: 1}, c.Counts())
 }
@@ -117,7 +127,7 @@ func (s *LeaseSuite) TestRecordHitsLeafAndParent() {
 func (s *LeaseSuite) TestZeroLeaseIsInert() {
 	c, _ := s.mustNew(nil, "a")
 	var l Lease
-	s.NotPanics(func() { c.RecordLease(l, breaker.OutcomeFailure, 0) })
+	s.NotPanics(func() { c.RecordLease(l, breaker.OutcomeFailure, 0, nil) })
 	s.Equal(uint32(0), c.Counts().Total)
 }
 
@@ -132,7 +142,7 @@ func (s *LeaseSuite) TestNestedRecordWalksPath() {
 	s.Require().NoError(err)
 	s.Equal([]string{testName, "mid", "inner", "leaf"}, l.Path())
 	s.Equal("leaf", l.ID())
-	root.RecordLease(l, breaker.OutcomeFailure, 0)
+	root.RecordLease(l, breaker.OutcomeFailure, 0, nil)
 	for name, counted := range map[string]interface{ Counts() breaker.Counts }{
 		"root": root, "mid": mid, "inner": leafOwner, "leaf": leaves["leaf"],
 	} {
@@ -151,13 +161,10 @@ func (s *LeaseSuite) TestNestedPickReleasesIntermediatePermit() {
 			s.forceOpen(b)
 		}
 	}
-	// Both sub-composites trip on their open leaves, then reach HalfOpen.
+	// Both sub-composites trip on total child outage, then reach HalfOpen.
 	for _, sub := range []*Composite{first, second} {
 		_, err := sub.Pick()
 		s.Require().ErrorIs(err, ErrNoHealthyChildren)
-		p, err := sub.Allow()
-		s.Require().NoError(err)
-		sub.Record(p, breaker.OutcomeFailure, 0)
 		s.Require().Equal(breaker.StateOpen, sub.State())
 	}
 	s.clock.advance(testParentOpen)
@@ -183,7 +190,7 @@ func (s *LeaseSuite) TestNestedPickSkipsOpenSubComposite() {
 		l, err := root.Pick()
 		s.Require().NoError(err)
 		s.Equal([]string{testName, "second", "b"}, l.Path())
-		root.RecordLease(l, breaker.OutcomeSuccess, 0)
+		root.RecordLease(l, breaker.OutcomeSuccess, 0, nil)
 	}
 }
 
@@ -308,7 +315,7 @@ func (s *LeaseSuite) TestPerHopEpochIndependent() {
 	l, err := c.Pick()
 	s.Require().NoError(err)
 	s.trip(leaves["a"])
-	c.RecordLease(l, breaker.OutcomeSuccess, 0)
+	c.RecordLease(l, breaker.OutcomeSuccess, 0, nil)
 	s.Equal(breaker.Counts{Total: 1, Failures: 1, ConsecutiveFailures: 1}, leaves["a"].Counts(), "the leaf discarded the stale permit")
 	s.Equal(breaker.Counts{Total: 1, Successes: 1, ConsecutiveSuccesses: 1}, c.Counts(), "the parent counted its own permit")
 }
@@ -321,7 +328,7 @@ func (s *LeaseSuite) TestConcurrentPickAndChildChanges() {
 			for range testRaceRounds {
 				l, err := c.Pick()
 				if err == nil {
-					c.RecordLease(l, breaker.OutcomeSuccess, 0)
+					c.RecordLease(l, breaker.OutcomeSuccess, 0, nil)
 				}
 			}
 		})
@@ -346,10 +353,12 @@ func (s *LeaseSuite) TestPickNoHealthyHookPanicSwallowed() {
 	s.forceOpen(leaves["a"])
 	s.events.ExpectedCalls = nil
 	s.events.On("OnStateChange", mock.Anything).Maybe()
+	s.events.On("OnCall", mock.Anything).Maybe()
 	noHealthy := mock.MatchedBy(func(ev breaker.RejectEvent) bool { return errors.Is(ev.Err, ErrNoHealthyChildren) })
 	s.events.On("OnReject", noHealthy).Run(func(mock.Arguments) { panic("reject boom") }).Once()
 	s.events.On("OnReject", mock.Anything).Maybe()
 	s.events.On("OnHookPanic", hookOnReject, "reject boom").Run(func(mock.Arguments) { panic("hook boom") }).Once()
+	s.events.On("OnHookPanic", mock.Anything, mock.Anything).Maybe()
 	expected := c.HookPanics()
 	var err error
 	s.NotPanics(func() { _, err = c.Pick() })

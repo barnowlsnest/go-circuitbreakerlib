@@ -38,13 +38,7 @@ func (l Lease) Path() []string {
 	return append(path, l.Leaf.Name())
 }
 
-// Pick takes a permit from the parent and then from the first child, in
-// round-robin order starting after the last child that admitted, that
-// admits the call; composite children are walked
-// the same way. A parent rejection returns its *breaker.RejectedError.
-// When no child admits, every permit taken is released and the error is a
-// *breaker.RejectedError wrapping ErrNoHealthyChildren, whose State is the
-// parent's own state, usually Closed.
+// Pick admits a call through the parent and the first healthy child.
 func (c *Composite) Pick() (Lease, error) {
 	var l Lease
 	if err := c.pick(&l); err != nil {
@@ -79,9 +73,11 @@ func (c *Composite) pick(l *Lease) error {
 		}
 	}
 	l.depth--
-	c.parent.Record(p, breaker.OutcomeIgnored, 0)
+	now := c.clock()
+	c.rescan(now)
+	c.parent.Record(p, breaker.OutcomeFailure, 0, nil)
 	state := c.parent.State()
-	c.rejectNoHealthy(c.clock(), state)
+	c.rejectNoHealthy(now, state)
 	return c.noHealthy[state]
 }
 
@@ -104,13 +100,13 @@ func (*Composite) pickChild(l *Lease, child Child) bool {
 // hop checks its own permit epoch, so a straggler may count on some levels
 // and be discarded on others; the parent aggregate can therefore differ
 // from the sum of its leaves by in-flight stragglers.
-func (c *Composite) RecordLease(l Lease, outcome breaker.Outcome, elapsed time.Duration) {
+func (c *Composite) RecordLease(l Lease, outcome breaker.Outcome, elapsed time.Duration, err error) {
 	if l.Leaf == nil {
 		return
 	}
-	l.Leaf.Record(l.permits[l.depth], outcome, elapsed)
+	l.Leaf.Record(l.permits[l.depth], outcome, elapsed, err)
 	for i := int(l.depth) - 1; i >= 0; i-- {
-		l.hops[i].Record(l.permits[i], outcome, elapsed)
+		l.hops[i].Record(l.permits[i], outcome, elapsed, err)
 	}
 }
 
@@ -138,7 +134,7 @@ func (c *Composite) Execute(ctx context.Context, fn func(ctx context.Context, le
 		if done {
 			outcome = c.classify(ctx, callErr)
 		}
-		c.RecordLease(l, outcome, elapsed)
+		c.RecordLease(l, outcome, elapsed, callErr)
 	}()
 	callErr = fn(ctx, l.ID())
 	done = true
@@ -146,11 +142,13 @@ func (c *Composite) Execute(ctx context.Context, fn func(ctx context.Context, le
 }
 
 func (c *Composite) classify(ctx context.Context, err error) (o breaker.Outcome) {
-	defer func() {
-		if r := recover(); r != nil {
-			o = breaker.OutcomeFailure
-			c.fireHookPanic(c.events, hookClassifier, r)
-		}
-	}()
+	defer c.recoverClassify(&o)
 	return c.classifier(ctx, err)
+}
+
+func (c *Composite) recoverClassify(o *breaker.Outcome) {
+	if r := recover(); r != nil {
+		*o = breaker.OutcomeFailure
+		c.fireHookPanic(c.events, hookClassifier, r)
+	}
 }
