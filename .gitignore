@@ -32,6 +32,9 @@ go.work.sum
 .idea/
 # .vscode/
 
+# git worktrees
+.worktrees/
+
 # superpowers scratch
 .superpowers/
 coverage.out
