@@ -296,7 +296,7 @@ func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration, err e
 	}
 }
 
-// hookPanic is a panic recovered under the lock, fired after unlock.
+// hookPanic is a recovered callback panic to fire after unlock.
 type hookPanic struct {
 	recovered any
 	name      string

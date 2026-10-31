@@ -1,9 +1,6 @@
 package breaker
 
-// Policy decides whether a Closed breaker should trip. ShouldTrip runs under
-// the breaker lock after each recorded outcome in Closed and once on the
-// closing probe in HalfOpen; Name becomes the Reason of the resulting
-// state change.
+// Policy decides whether a breaker should trip.
 type Policy interface {
 	ShouldTrip(c Counts) bool
 	Name() string

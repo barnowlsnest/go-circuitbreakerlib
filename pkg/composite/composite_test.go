@@ -16,6 +16,7 @@ const (
 	testName          = "dep"
 	testChildOpen     = 5 * time.Second
 	testParentOpen    = 30 * time.Second
+	testLongChildOpen = testParentOpen + testChildOpen
 	testScanInterval  = 10 * time.Millisecond
 	testWindowDrain   = 11 * time.Second
 	testRateCalls     = 50
@@ -495,6 +496,33 @@ func (s *CompositeSuite) TestClosingRecheckReopens() {
 		return ev.Name == testName && ev.To == breaker.StateClosed
 	}))
 	s.True(c.frozen())
+}
+
+func (s *CompositeSuite) TestHalfOpenFailureKeepsTripAggregate() {
+	s.childTrip = testNeverTrip
+	s.childOpen = testLongChildOpen
+	c, leaves := s.mustNew(nil, "a", "b", "c")
+	s.forceOpen(leaves["a"])
+	s.forceOpen(leaves["b"])
+	s.record(c, testRateCalls, testRateFailures)
+	s.Require().Equal(breaker.StateOpen, c.State())
+	frozen := c.tripAggregate.Load()
+	s.Require().NotNil(frozen)
+	s.Equal(uint32(testRateCalls), frozen.Total)
+
+	s.clock.advance(testParentOpen)
+	l, err := c.Pick()
+	s.Require().NoError(err)
+	s.Equal("c", l.ID())
+	c.RecordLease(l, breaker.OutcomeFailure, 0, nil)
+	s.Require().Equal(breaker.StateOpen, c.State())
+
+	frozen = c.tripAggregate.Load()
+	s.Require().NotNil(frozen)
+	s.Equal(uint32(testRateCalls), frozen.Total)
+	_, err = c.Pick()
+	s.ErrorIs(err, breaker.ErrOpen)
+	s.Equal(breaker.StateOpen, c.State())
 }
 
 func (s *CompositeSuite) TestTripAggregateClearedOnClose() {
