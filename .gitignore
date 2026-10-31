@@ -35,6 +35,8 @@ go.work.sum
 # git worktrees
 .worktrees/
 
+.cursor/
+
 # superpowers scratch
 .superpowers/
 coverage.out
