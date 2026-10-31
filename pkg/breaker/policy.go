@@ -1,9 +1,10 @@
 package breaker
 
-import "github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
-
 // Policy decides whether a breaker should trip.
-type Policy = breakercore.Policy
+type Policy interface {
+	ShouldTrip(c Counts) bool
+	Name() string
+}
 
 // FailureRate trips when Failures/Total >= Threshold and Total >= MinCalls.
 type FailureRate struct {

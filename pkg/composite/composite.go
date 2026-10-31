@@ -4,7 +4,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
 
@@ -74,8 +73,8 @@ func New(opts ...Option) (*Composite, error) {
 	if o.nameSet {
 		base = append(base, breaker.WithName(o.name))
 	}
-	base = append(base, breakercore.FillEvents(c.events))
-	settings, err := breakercore.ResolveSettings(base...)
+	base = append(base, breaker.FillEvents(c.events))
+	settings, err := breaker.ResolveSettings(base...)
 	if err != nil {
 		return nil, err
 	}

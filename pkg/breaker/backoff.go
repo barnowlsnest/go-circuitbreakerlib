@@ -5,12 +5,12 @@ import (
 	"math"
 	"math/rand/v2"
 	"time"
-
-	"github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
 )
 
 // Backoff decides how long a breaker stays Open for a given attempt.
-type Backoff = breakercore.Backoff
+type Backoff interface {
+	Delay(attempt int) time.Duration
+}
 
 // ExponentialBackoff doubles Base each attempt, optionally capped by Max.
 type ExponentialBackoff struct {

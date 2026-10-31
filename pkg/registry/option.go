@@ -33,8 +33,8 @@ type options struct {
 }
 
 // WithBreaker sets the options applied to every breaker Get creates. The
-// breaker's name is always the registry key; WithEvents still supplies
-// Events when these options leave it unset.
+// breaker's name is always the registry key; FillEvents from WithEvents
+// still applies when these options leave Events unset.
 func WithBreaker(opts ...breaker.Option) Option {
 	return func(o *options) error {
 		o.breakerOpts = opts
@@ -42,7 +42,8 @@ func WithBreaker(opts ...breaker.Option) Option {
 	}
 }
 
-// WithEvents sets the Events given to every breaker whose Events is unset.
+// WithEvents sets the Events given to every breaker whose Config.Events is
+// nil.
 func WithEvents(ev breaker.Events) Option {
 	return func(o *options) error {
 		if ev == nil {

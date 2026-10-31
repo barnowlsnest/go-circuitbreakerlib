@@ -5,8 +5,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
 )
 
 const (
@@ -47,14 +45,11 @@ type Breaker struct {
 // New applies opts, validates, applies defaults, and returns a Closed
 // breaker.
 func New(opts ...Option) (*Breaker, error) {
-	o, err := breakercore.ApplyOptions(opts...)
+	o, err := applyOptions(opts...)
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := configFromCore(&o)
-	if err != nil {
-		return nil, err
-	}
+	cfg := o.toConfig()
 	c, err := cfg.withDefaults()
 	if err != nil {
 		return nil, err
@@ -88,7 +83,7 @@ func (b *Breaker) ReportHookPanic(name string, recovered any) { b.fireHookPanic(
 
 func (b *Breaker) rel(t time.Time) int64 { return t.Sub(b.base).Nanoseconds() }
 
-func (b *Breaker) state() (epoch uint64, s State) { return unpack(b.packed.Load()) }
+func (b *Breaker) state() (uint64, State) { return unpack(b.packed.Load()) }
 
 func (b *Breaker) backoffDue(now time.Time) bool { return b.rel(now) >= b.reopenAt.Load() }
 
@@ -352,12 +347,7 @@ func (b *Breaker) evaluate(now time.Time, epoch uint64, s State, outcome Outcome
 }
 
 // openWith enters Open for evaluate, appending a Backoff panic to panics.
-func (b *Breaker) openWith(
-	now time.Time,
-	reason Reason,
-	attempt int,
-	panics []hookPanic,
-) (ev StateChangeEvent, changed bool, hookPanics []hookPanic) {
+func (b *Breaker) openWith(now time.Time, reason Reason, attempt int, panics []hookPanic) (StateChangeEvent, bool, []hookPanic) {
 	ev, bp := b.open(now, reason, attempt)
 	if bp != nil {
 		panics = append(panics, hookPanic{name: hookBackoff, recovered: bp})

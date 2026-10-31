@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"time"
-
-	"github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
 )
 
 const (
@@ -21,14 +19,20 @@ const (
 // Classifier turns a call's result into an Outcome. It receives the caller's
 // context so that the caller giving up (context.Canceled) can be told apart
 // from the dependency failing.
-type Classifier = breakercore.Classifier
+type Classifier func(ctx context.Context, err error) Outcome
 
 // DefaultClassifier ignores calls the caller canceled, counts nil as
 // success, and counts everything else, including deadline errors from
 // either side, as failure. A hung dependency produces nothing but deadline
 // errors, so they must trip the breaker.
 func DefaultClassifier(ctx context.Context, err error) Outcome {
-	return breakercore.DefaultClassifier(ctx, err)
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return OutcomeIgnored
+	}
+	if err == nil {
+		return OutcomeSuccess
+	}
+	return OutcomeFailure
 }
 
 // config is the resolved breaker settings after options and defaults.

@@ -1,11 +1,14 @@
-## Fix Report: remove unsafe breakercore bridge
+## Fix Report: defer Goal 3 hide
 
-- Replaced the `go:linkname` bridge with an ordinary `internal/breakercore` option surface.
-- `pkg/breaker` now aliases `breakercore.Option` and keeps public `With*` constructors as typed wrappers.
-- `pkg/registry` and `pkg/composite` continue to use `breakercore` for `FillEvents`, validation, and settings resolution.
-- Confirmed `breaker.FillEvents`, `breaker.ValidateNoPolicies`, `breaker.ValidateNoReopenEarly`, `breaker.ResolveSettings`, and `breaker.Settings` remain absent from public docs.
-- Confirmed no `unsafe` or `go:linkname` references remain.
+- Reverted Task 4 commits `b00b542` and `1759237`.
+- Restored `breaker.FillEvents`, `breaker.ValidateNoPolicies`, `breaker.ValidateNoReopenEarly`, `breaker.ResolveSettings`, and `breaker.Settings`.
+- Restored registry and composite to use the public breaker helpers.
+- Deleted `internal/breakercore`.
+- Preserved `pkg/breaker` as stdlib-only.
+- Confirmed no `unsafe`, `go:linkname`, or `breakercore` references remain.
+
+Ruling:
+- Goal 3 true hide is deferred because `breaker.Option` is `func(*options) error`, `options` is unexported, and `pkg/breaker` must remain stdlib-only.
 
 Verification:
-- `go test ./pkg/breaker/ ./pkg/registry/ ./pkg/composite/ ./pkg/adapter/ ./pkg/hooks/` passed.
 - `task sanity` passed.

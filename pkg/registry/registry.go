@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
 
@@ -151,7 +150,7 @@ func (r *Registry) createLocked(key string) (e, victim *entry, err error) {
 	opts = append(opts, r.breakerOpts...)
 	opts = append(opts, breaker.WithName(key))
 	if r.events != nil {
-		opts = append(opts, breakercore.FillEvents(r.events))
+		opts = append(opts, breaker.FillEvents(r.events))
 	}
 	b, err := breaker.New(opts...)
 	if err != nil {
