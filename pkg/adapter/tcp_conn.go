@@ -18,9 +18,8 @@ import (
 // same here. A successful operation counts as a success only when the
 // permit is a half-open probe, so pooled connections can close a HalfOpen
 // breaker without ordinary traffic flooding the window. Only Writes probe:
-// a Read handed a probe slot gives it back at once and runs untracked,
-// because a Read on an idle pooled connection can block for as long as the
-// peer stays quiet and would hold the HalfOpen breaker hostage.
+// while HalfOpen, Reads skip Allow and run untracked so they never contend
+// for the probe slot a Write needs to close the breaker.
 type trackedConn struct {
 	net.Conn
 	breaker *breaker.Breaker
@@ -128,17 +127,15 @@ func track[N int | int64](c *trackedConn, op func() (N, error), kind ioKind) (n 
 	return n, err
 }
 
-// allow takes a permit for one operation. A read that is handed a probe
-// slot returns it immediately and reports tracked=false, so the read runs
-// without a permit and never counts as a probe.
+// allow takes a permit for one operation. HalfOpen reads skip Allow so they
+// never contend for the probe slot a Write needs to close the breaker.
 func (c *trackedConn) allow(kind ioKind) (p breaker.Permit, tracked bool, err error) {
+	if kind == readOp && c.breaker.State() == breaker.StateHalfOpen {
+		return breaker.Permit{}, false, nil
+	}
 	p, err = c.breaker.Allow()
 	if err != nil {
 		return breaker.Permit{}, false, rejectConn(err)
-	}
-	if kind == readOp && p.IsProbe() {
-		c.breaker.Record(p, breaker.OutcomeIgnored, 0, nil)
-		return breaker.Permit{}, false, nil
 	}
 	return p, true, nil
 }
