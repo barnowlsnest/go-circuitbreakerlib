@@ -121,6 +121,19 @@ func (m *MockTestService) StreamingOutputCall(
 	return m.Called(req, stream).Error(0)
 }
 
+func (m *MockTestService) StreamingInputCall(
+	stream grpc.ClientStreamingServer[grpc_testing.StreamingInputCallRequest, grpc_testing.StreamingInputCallResponse],
+) error {
+	args := m.Called(stream)
+	resp, _ := args.Get(0).(*grpc_testing.StreamingInputCallResponse)
+	if resp != nil {
+		if err := stream.SendAndClose(resp); err != nil {
+			return err
+		}
+	}
+	return args.Error(1)
+}
+
 // MockContextDialer is a testify mock of ContextDialer.
 type MockContextDialer struct {
 	mock.Mock

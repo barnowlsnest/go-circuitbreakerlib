@@ -205,13 +205,15 @@ func (c *grpcClient) stream(
 		b.Record(p, classifyGRPC(b, c.settings.grpcClassifier, ctx, err), b.Now().Sub(start), err)
 		return nil, err
 	}
+	serverStreams := desc != nil && desc.ServerStreams
 	stream = &trackedClientStream{
-		ClientStream: stream,
-		breaker:      b,
-		classifier:   c.settings.grpcClassifier,
-		ctx:          ctx,
-		start:        start,
-		permit:       p,
+		ClientStream:  stream,
+		breaker:       b,
+		classifier:    c.settings.grpcClassifier,
+		ctx:           ctx,
+		start:         start,
+		permit:        p,
+		serverStreams: serverStreams,
 	}
 	return stream, err
 }

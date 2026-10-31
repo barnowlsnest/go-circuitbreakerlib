@@ -206,6 +206,18 @@ func (s *GRPCSuite) TestStreamRecordsCleanEOF() {
 	s.Equal(breaker.Counts{Total: 1, Successes: 1, ConsecutiveSuccesses: 1}, s.breaker.Counts())
 }
 
+func (s *GRPCSuite) TestStreamRecordsClientStreamingCloseAndRecv() {
+	stream, err := NewGRPCStreamInterceptor(WithBreaker(s.breaker))
+	s.Require().NoError(err)
+	s.service.On("StreamingInputCall", mock.Anything).Return(&grpc_testing.StreamingInputCallResponse{}, nil).Once()
+	in, err := s.client(nil, stream).StreamingInputCall(context.Background())
+	s.Require().NoError(err)
+	resp, err := in.CloseAndRecv()
+	s.Require().NoError(err)
+	s.NotNil(resp)
+	s.Equal(breaker.Counts{Total: 1, Successes: 1, ConsecutiveSuccesses: 1}, s.breaker.Counts())
+}
+
 func (s *GRPCSuite) TestStreamRecordsHeaderFailureOnce() {
 	stream, err := NewGRPCStreamInterceptor(
 		WithBreaker(s.breaker),

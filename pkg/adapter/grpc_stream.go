@@ -15,12 +15,13 @@ import (
 
 type trackedClientStream struct {
 	grpc.ClientStream
-	breaker    *breaker.Breaker
-	classifier GRPCClassifier
-	ctx        context.Context
-	start      time.Time
-	permit     breaker.Permit
-	recorded   atomic.Bool
+	breaker       *breaker.Breaker
+	classifier    GRPCClassifier
+	ctx           context.Context
+	start         time.Time
+	permit        breaker.Permit
+	recorded      atomic.Bool
+	serverStreams bool
 }
 
 func (s *trackedClientStream) Header() (metadata.MD, error) {
@@ -82,6 +83,12 @@ func (s *trackedClientStream) RecvMsg(m any) error {
 	}()
 	err = s.ClientStream.RecvMsg(m)
 	done = true
+	if err == nil {
+		if !s.serverStreams {
+			s.record(s.classify(nil), nil)
+		}
+		return nil
+	}
 	if errors.Is(err, io.EOF) {
 		s.record(s.classify(nil), nil)
 		return err
