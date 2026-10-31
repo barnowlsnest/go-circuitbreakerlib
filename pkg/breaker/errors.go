@@ -3,27 +3,29 @@ package breaker
 import (
 	"errors"
 	"fmt"
+
+	"github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
 )
 
 var (
 	// ErrInvalidConfig is joined with a specific sentinel by New when an
 	// option resolves to an unusable configuration, so errors.Is matches both.
-	ErrInvalidConfig = errors.New("invalid breaker configuration")
+	ErrInvalidConfig = breakercore.ErrInvalidConfig
 	// ErrInvalidOption is returned by New when an option value is unusable.
-	ErrInvalidOption = errors.New("breaker: invalid option")
+	ErrInvalidOption = breakercore.ErrInvalidOption
 	// ErrEmptyName is joined with ErrInvalidConfig when Name is empty.
-	ErrEmptyName = errors.New("name is empty")
+	ErrEmptyName = breakercore.ErrEmptyName
 	// ErrNegativeDuration is joined with ErrInvalidConfig when a duration is negative.
-	ErrNegativeDuration = errors.New("duration must not be negative")
+	ErrNegativeDuration = breakercore.ErrNegativeDuration
 	// ErrPolicyThreshold is joined with ErrInvalidConfig when a rate threshold is outside (0, 1].
 	ErrPolicyThreshold = errors.New("policy threshold must be in (0, 1]")
 	// ErrPolicyCount is joined with ErrInvalidConfig when a policy count or MinCalls is zero.
 	ErrPolicyCount = errors.New("policy count must be positive")
 	// ErrNilPolicy is joined with ErrInvalidConfig when Policies contains nil.
-	ErrNilPolicy = errors.New("policy is nil")
+	ErrNilPolicy = breakercore.ErrNilPolicy
 	// ErrEmptyPolicies is joined with ErrInvalidConfig when WithPolicies is
 	// called with no policies.
-	ErrEmptyPolicies = errors.New("policies must not be empty")
+	ErrEmptyPolicies = breakercore.ErrEmptyPolicies
 	// ErrInvalidBackoff is joined with ErrInvalidConfig when ExponentialBackoff
 	// has Base <= 0 or Max < Base.
 	ErrInvalidBackoff = errors.New("backoff Base must be > 0 and Max >= Base when Max > 0")

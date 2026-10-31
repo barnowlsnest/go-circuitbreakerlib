@@ -1,40 +1,19 @@
 package breaker
 
-const unknownName = "unknown"
+import "github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
 
 // Outcome is the classification of one call, as decided by a Classifier.
-type Outcome uint8
+type Outcome = breakercore.Outcome
 
 const (
 	// OutcomeSuccess counts toward the window as a success.
-	OutcomeSuccess Outcome = iota
+	OutcomeSuccess = breakercore.OutcomeSuccess
 	// OutcomeFailure counts toward the window as a failure.
-	OutcomeFailure
+	OutcomeFailure = breakercore.OutcomeFailure
 	// OutcomeIgnored is not counted at all. In HalfOpen it releases the probe
 	// slot the permit held without counting as a probe result.
-	OutcomeIgnored
+	OutcomeIgnored = breakercore.OutcomeIgnored
 )
 
-// String returns the outcome name.
-func (o Outcome) String() string {
-	switch o {
-	case OutcomeSuccess:
-		return "success"
-	case OutcomeFailure:
-		return "failure"
-	case OutcomeIgnored:
-		return "ignored"
-	default:
-		return unknownName
-	}
-}
-
 // Counts is a snapshot of a sliding window.
-type Counts struct {
-	Total                uint32
-	Successes            uint32
-	Failures             uint32
-	Slow                 uint32
-	ConsecutiveFailures  uint32
-	ConsecutiveSuccesses uint32
-}
+type Counts = breakercore.Counts

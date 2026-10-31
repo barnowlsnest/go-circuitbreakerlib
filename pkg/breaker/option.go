@@ -1,286 +1,127 @@
 package breaker
 
 import (
-	"errors"
 	"fmt"
 	"time"
+
+	"github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
 )
 
 // Option configures a Breaker. An option with an invalid value makes New
 // return an error that matches ErrInvalidConfig or ErrInvalidOption.
-type Option func(*options) error
-
-type options struct {
-	events            Events
-	window            WindowSpec
-	backoff           Backoff
-	clock             func() time.Time
-	classifier        Classifier
-	reopenEarly       func() bool
-	name              string
-	policies          []Policy
-	slowCallDuration  time.Duration
-	openDuration      time.Duration
-	probeTimeout      time.Duration
-	halfOpenMaxCalls  uint32
-	halfOpenSuccesses uint32
-	policiesSet       bool
-	reopenEarlySet    bool
-}
+type Option = breakercore.Option
 
 // WithName sets the breaker name used in events and logs. name must be
 // non-empty.
 func WithName(name string) Option {
-	return func(o *options) error {
-		if name == "" {
-			return errors.Join(ErrInvalidConfig, ErrEmptyName)
-		}
-		o.name = name
-		return nil
-	}
+	return breakercore.WithName(name)
 }
 
 // WithPolicies replaces the trip policies.
 func WithPolicies(policies ...Policy) Option {
-	return func(o *options) error {
-		if len(policies) == 0 {
-			return errors.Join(ErrInvalidConfig, ErrEmptyPolicies)
-		}
-		for i, p := range policies {
-			if p == nil {
-				return fmt.Errorf("%w: %w at %d", ErrInvalidConfig, ErrNilPolicy, i)
-			}
-		}
-		o.policies = policies
-		o.policiesSet = true
-		return nil
-	}
+	return breakercore.WithPolicies(policies...)
 }
 
 // WithWindow sets the sliding window. The default is
 // SlidingTimeWindow{10s, 10}.
 func WithWindow(w WindowSpec) Option {
-	return func(o *options) error {
-		if w == nil {
-			return fmt.Errorf("%w: nil window", ErrInvalidOption)
-		}
-		o.window = w
-		return nil
-	}
+	return breakercore.WithWindow(w)
 }
 
 // WithBackoff sets the open-state delay.
 func WithBackoff(b Backoff) Option {
-	return func(o *options) error {
-		if b == nil {
-			return fmt.Errorf("%w: nil backoff", ErrInvalidOption)
+	switch eb := b.(type) {
+	case nil:
+		return breakercore.WithBackoff(b)
+	case ExponentialBackoff:
+		if err := eb.validate(); err != nil {
+			return breakercore.Invalid(err)
 		}
-		switch eb := b.(type) {
-		case ExponentialBackoff:
-			if err := eb.validate(); err != nil {
-				return err
-			}
-		case *ExponentialBackoff:
-			if eb == nil {
-				return fmt.Errorf("%w: nil backoff", ErrInvalidOption)
-			}
-			if err := eb.validate(); err != nil {
-				return err
-			}
+	case *ExponentialBackoff:
+		if eb == nil {
+			return breakercore.Invalid(fmt.Errorf("%w: nil backoff", ErrInvalidOption))
 		}
-		o.backoff = b
-		return nil
+		if err := eb.validate(); err != nil {
+			return breakercore.Invalid(err)
+		}
 	}
+	return breakercore.WithBackoff(b)
 }
 
 // WithEvents sets the event sink. The default is NoopEvents.
 func WithEvents(ev Events) Option {
-	return func(o *options) error {
-		if ev == nil {
-			return fmt.Errorf("%w: nil events", ErrInvalidOption)
-		}
-		o.events = ev
-		return nil
-	}
-}
-
-//nolint:unused // Linked from internal/breakercore.
-func fillEvents(ev Events) Option {
-	return func(o *options) error {
-		if ev == nil {
-			return fmt.Errorf("%w: nil events", ErrInvalidOption)
-		}
-		if o.events == nil {
-			o.events = ev
-		}
-		return nil
-	}
+	return breakercore.WithEvents(ev)
 }
 
 // WithClassifier sets how call results become Outcomes. The default is
 // DefaultClassifier.
 func WithClassifier(fn Classifier) Option {
-	return func(o *options) error {
-		if fn == nil {
-			return fmt.Errorf("%w: nil classifier", ErrInvalidOption)
-		}
-		o.classifier = fn
-		return nil
-	}
+	return breakercore.WithClassifier(fn)
 }
 
 // WithClock sets the time source. The default is time.Now.
 func WithClock(fn func() time.Time) Option {
-	return func(o *options) error {
-		if fn == nil {
-			return fmt.Errorf("%w: nil clock", ErrInvalidOption)
-		}
-		o.clock = fn
-		return nil
-	}
+	return breakercore.WithClock(fn)
 }
 
 // WithReopenEarly sets a predicate that may move Open to HalfOpen before
 // the backoff elapses. nil clears it.
 func WithReopenEarly(fn func() bool) Option {
-	return func(o *options) error {
-		o.reopenEarly = fn
-		o.reopenEarlySet = true
-		return nil
-	}
+	return breakercore.WithReopenEarly(fn)
 }
 
 // WithSlowCallDuration marks calls slower than d as slow. 0 disables.
 func WithSlowCallDuration(d time.Duration) Option {
-	return func(o *options) error {
-		if d < 0 {
-			return errors.Join(ErrInvalidConfig, ErrNegativeDuration)
-		}
-		o.slowCallDuration = d
-		return nil
-	}
+	return breakercore.WithSlowCallDuration(d)
 }
 
 // WithOpenDuration sets the default open delay when Backoff is unset. The
 // default is 30s.
 func WithOpenDuration(d time.Duration) Option {
-	return func(o *options) error {
-		if d < 0 {
-			return errors.Join(ErrInvalidConfig, ErrNegativeDuration)
-		}
-		o.openDuration = d
-		return nil
-	}
+	return breakercore.WithOpenDuration(d)
 }
 
 // WithProbeTimeout sets how long a HalfOpen probe may run. The default is
 // 60s.
 func WithProbeTimeout(d time.Duration) Option {
-	return func(o *options) error {
-		if d < 0 {
-			return errors.Join(ErrInvalidConfig, ErrNegativeDuration)
-		}
-		o.probeTimeout = d
-		return nil
-	}
+	return breakercore.WithProbeTimeout(d)
 }
 
 // WithHalfOpenMaxCalls sets how many probes HalfOpen admits. The default is
 // 1.
 func WithHalfOpenMaxCalls(n uint32) Option {
-	return func(o *options) error {
-		o.halfOpenMaxCalls = n
-		return nil
-	}
+	return breakercore.WithHalfOpenMaxCalls(n)
 }
 
 // WithHalfOpenSuccesses sets how many probe successes close the breaker.
 // The default equals HalfOpenMaxCalls.
 func WithHalfOpenSuccesses(n uint32) Option {
-	return func(o *options) error {
-		o.halfOpenSuccesses = n
-		return nil
-	}
+	return breakercore.WithHalfOpenSuccesses(n)
 }
 
-func applyOptions(opts ...Option) (options, error) {
-	var o options
-	for _, opt := range opts {
-		if err := opt(&o); err != nil {
-			return o, err
+func configFromCore(o *breakercore.Config) (config, error) {
+	var window WindowSpec
+	if o.Window != nil {
+		var ok bool
+		window, ok = o.Window.(WindowSpec)
+		if !ok {
+			return config{}, fmt.Errorf("%w: invalid window", ErrInvalidOption)
 		}
 	}
-	return o, nil
-}
-
-//nolint:unused // Linked from internal/breakercore.
-func validateNoPolicies(opts ...Option) error {
-	o, err := applyOptions(opts...)
-	if err != nil {
-		return err
-	}
-	if o.policiesSet {
-		return fmt.Errorf("%w: policies must be empty, Trip is the parent policy", ErrInvalidConfig)
-	}
-	return nil
-}
-
-//nolint:unused // Linked from internal/breakercore.
-func validateNoReopenEarly(opts ...Option) error {
-	o, err := applyOptions(opts...)
-	if err != nil {
-		return err
-	}
-	if o.reopenEarlySet {
-		return fmt.Errorf("%w: ReopenEarly is reserved by the composite", ErrInvalidConfig)
-	}
-	return nil
-}
-
-//nolint:unused // Linked from internal/breakercore.
-type settings struct {
-	Clock      func() time.Time
-	Classifier Classifier
-	Events     Events
-	Name       string
-}
-
-//nolint:unused // Linked from internal/breakercore.
-func resolveSettings(opts ...Option) (settings, error) {
-	o, err := applyOptions(opts...)
-	if err != nil {
-		return settings{}, err
-	}
-	cfg := o.toConfig()
-	resolved, err := cfg.withDefaults()
-	if err != nil {
-		return settings{}, err
-	}
-	return settings{
-		Clock:      resolved.Clock,
-		Classifier: resolved.Classifier,
-		Events:     resolved.Events,
-		Name:       resolved.Name,
-	}, nil
-}
-
-func (o *options) toConfig() config {
 	cfg := config{
-		Events:            o.events,
-		Window:            o.window,
-		Backoff:           o.backoff,
-		Clock:             o.clock,
-		Classifier:        o.classifier,
-		ReopenEarly:       o.reopenEarly,
-		Name:              o.name,
-		SlowCallDuration:  o.slowCallDuration,
-		OpenDuration:      o.openDuration,
-		ProbeTimeout:      o.probeTimeout,
-		HalfOpenMaxCalls:  o.halfOpenMaxCalls,
-		HalfOpenSuccesses: o.halfOpenSuccesses,
+		Events:            o.Events,
+		Window:            window,
+		Backoff:           o.Backoff,
+		Clock:             o.Clock,
+		Classifier:        o.Classifier,
+		ReopenEarly:       o.ReopenEarly,
+		Name:              o.Name,
+		Policies:          o.Policies,
+		SlowCallDuration:  o.SlowCallDuration,
+		OpenDuration:      o.OpenDuration,
+		ProbeTimeout:      o.ProbeTimeout,
+		HalfOpenMaxCalls:  o.HalfOpenMaxCalls,
+		HalfOpenSuccesses: o.HalfOpenSuccesses,
 	}
-	if o.policiesSet {
-		cfg.Policies = o.policies
-	}
-	return cfg
+	return cfg, nil
 }

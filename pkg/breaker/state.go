@@ -1,49 +1,37 @@
 package breaker
 
+import "github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
+
 // State is the breaker's position in the Closed / Open / HalfOpen cycle.
 // It is packed with the epoch into one atomic word so Allow reads both
 // with a single load.
-type State uint32
+type State = breakercore.State
 
 const (
 	// StateClosed admits every call and records outcomes.
-	StateClosed State = iota
+	StateClosed = breakercore.StateClosed
 	// StateOpen rejects every call until the backoff elapses.
-	StateOpen
+	StateOpen = breakercore.StateOpen
 	// StateHalfOpen admits a bounded number of probe calls.
-	StateHalfOpen
+	StateHalfOpen = breakercore.StateHalfOpen
 )
 
-// String returns the lower-case state name.
-func (s State) String() string {
-	switch s {
-	case StateClosed:
-		return "closed"
-	case StateOpen:
-		return "open"
-	case StateHalfOpen:
-		return "half-open"
-	default:
-		return unknownName
-	}
-}
-
 // Reason explains a state change. Policy trips use Reason(policy.Name()).
-type Reason string
+type Reason = breakercore.Reason
 
 const (
 	// ReasonTimeout is Open to HalfOpen after the backoff elapsed.
-	ReasonTimeout Reason = "timeout"
+	ReasonTimeout = breakercore.ReasonTimeout
 	// ReasonEarlyHalfOpen is Open to HalfOpen because Config.ReopenEarly returned true.
-	ReasonEarlyHalfOpen Reason = "early-half-open"
+	ReasonEarlyHalfOpen = breakercore.ReasonEarlyHalfOpen
 	// ReasonHalfOpenSuccess is HalfOpen to Closed after enough probe successes.
-	ReasonHalfOpenSuccess Reason = "half-open-success"
+	ReasonHalfOpenSuccess = breakercore.ReasonHalfOpenSuccess
 	// ReasonHalfOpenFailure is HalfOpen to Open after a probe failure.
-	ReasonHalfOpenFailure Reason = "half-open-failure"
+	ReasonHalfOpenFailure = breakercore.ReasonHalfOpenFailure
 	// ReasonProbeTimeout is HalfOpen to Open because a probe was never recorded.
-	ReasonProbeTimeout Reason = "probe-timeout"
+	ReasonProbeTimeout = breakercore.ReasonProbeTimeout
 	// ReasonForced is a ForceOpen or ForceClose call.
-	ReasonForced Reason = "forced"
+	ReasonForced = breakercore.ReasonForced
 	// ReasonReset is a Reset call.
-	ReasonReset Reason = "reset"
+	ReasonReset = breakercore.ReasonReset
 )
