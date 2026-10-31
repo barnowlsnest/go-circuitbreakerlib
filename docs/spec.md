@@ -956,8 +956,8 @@ func DefaultHTTPClassifier(ctx context.Context, resp *http.Response, err error) 
 
 Default classifier: `errors.Is(ctx.Err(), context.Canceled)` → Ignored;
 transport `err != nil` (including deadline exceeded) → Failure; status ≥ 500
-→ Failure; 408 → Failure; everything else, including 429, → Success. Elapsed is measured around `next.RoundTrip` only (headers
-received), not body read.
+→ Failure; 408 → Failure; everything else, including 429, → Success. Successful responses with a real body record when the body ends;
+nil and `http.NoBody` responses, transport errors, and header failures record immediately.
 
 ### `grpc.go`
 
