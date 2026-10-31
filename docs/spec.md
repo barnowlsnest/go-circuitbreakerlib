@@ -155,8 +155,9 @@ test.
 ### Lock convoy under contention
 
 - **Mechanism:** `Allow` in Closed is one atomic load of the packed
-  state+epoch word. The locked section in `Record` is bounded and never calls out (hooks
-  fire after unlock). A goroutine never holds two breaker locks.
+  state+epoch word. The locked section in `Record` is bounded; policies run
+  after a snapshot and before relock, and hooks fire after unlock. A goroutine
+  never holds two breaker locks.
 - **Test:** parallel benchmark gate (see performance section); `-race` tests.
 
 ### Breaker rejects forever after a transient glitch
@@ -202,7 +203,7 @@ test.
   structs are passed by value and the hook decides what to allocate.
 - **Lock ordering rule:** a goroutine never holds two breaker locks. All
   cross-breaker updates (child → parent in composites) happen via atomics or
-  after the child's lock is released. Hooks fire after unlock.
+  after the child's lock is released. Policies and hooks fire after unlock.
 
 ## Versioning
 
@@ -432,7 +433,7 @@ stays a single global atomic (sharding it would make it approximate).
 
 ```go
 type Policy interface {
-    // ShouldTrip is called under the breaker lock after each Record in Closed.
+    // ShouldTrip is called outside the breaker lock after Record snapshots Counts.
     ShouldTrip(c Counts) bool
     // Name becomes the Reason of the resulting state change.
     Name() string
@@ -872,8 +873,8 @@ hooks defined for this purpose:
 
 - its single `Policy` is an adapter that calls
   `Trip(cachedOpenChildren, len(children), aggregate)`. In Closed the
-  aggregate is the live window. **When the policy trips, the composite
-  freezes that aggregate** (`tripAggregate`). On the closing Record in
+  aggregate is the live window. **When the parent actually enters Open, the
+  composite freezes that aggregate** (`tripAggregate`). On the closing Record in
   HalfOpen the adapter calls `Trip(cachedOpenChildren, len(children),
   tripAggregate)`: the child-count terms are live, the aggregate-rate terms
   are the trip-time snapshot. A still-true `Trip` sends the parent directly
@@ -884,8 +885,8 @@ hooks defined for this purpose:
 - its `ReopenEarly` returns `!Trip(cachedOpenChildren, len(children),
   tripAggregate)` (`tripAggregate` is an `atomic.Pointer[breaker.Counts]`
   so this stays lock-free; the composite wraps the parent's `Events` with
-  an internal observer, in front of the user's hook, to clear it when the
-  parent closes) for the same reason: the parent's live `Counts()` while
+  an internal observer, in front of the user's hook, to freeze it when the
+  parent opens and clear it when the parent closes) for the same reason: the parent's live `Counts()` while
   Open drains to empty after one window `Size`, which would make any
   aggregate term false and reopen the parent at 10s regardless of children.
   With the frozen aggregate, only child recovery can trigger

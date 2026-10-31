@@ -19,7 +19,26 @@ const (
 	testTripCount    = 3
 	testRejections   = 100
 	testGoroutines   = 64
+	testReentryWait  = time.Second
 )
+
+type reenterAllowPolicy struct {
+	b         *Breaker
+	reentered bool
+}
+
+func (p *reenterAllowPolicy) ShouldTrip(Counts) bool {
+	if !p.reentered {
+		p.reentered = true
+		permit, err := p.b.Allow()
+		if err == nil {
+			p.b.Record(permit, OutcomeSuccess, 0, nil)
+		}
+	}
+	return true
+}
+
+func (*reenterAllowPolicy) Name() string { return "reenter-allow" }
 
 type BreakerSuite struct {
 	suite.Suite
@@ -139,6 +158,27 @@ func (s *BreakerSuite) TestTripsOnConsecutiveFailures() {
 	s.events.AssertCalled(s.T(), "OnReject", mock.MatchedBy(func(ev RejectEvent) bool {
 		return errors.Is(ev.Err, ErrOpen) && ev.State == StateOpen
 	}))
+}
+
+func (s *BreakerSuite) TestPolicyShouldTripMayReenterAllow() {
+	policy := &reenterAllowPolicy{}
+	b := s.mustNew(WithPolicies(policy))
+	policy.b = b
+	permit, err := b.Allow()
+	s.Require().NoError(err)
+
+	done := make(chan struct{})
+	go func() {
+		b.Record(permit, OutcomeFailure, 0, nil)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(testReentryWait):
+		s.FailNow("Record did not complete after Policy.ShouldTrip re-entered Allow")
+	}
+	s.Equal(StateOpen, b.State())
 }
 
 func (s *BreakerSuite) TestOpenToHalfOpenAfterBackoff() {

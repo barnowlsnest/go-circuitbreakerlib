@@ -24,6 +24,7 @@ const (
 	testNeverTrip     = 1 << 30
 	testHalfOpenCalls = 1
 	testAttachRounds  = 500
+	testReentryWait   = time.Second
 )
 
 // baseSuite holds the fixture shared by the composite suites. It has no test
@@ -392,6 +393,37 @@ func (s *CompositeSuite) TestDefaultTrip() {
 			s.Equal(tt.expectedState, c.State())
 		})
 	}
+}
+
+func (s *CompositeSuite) TestTripFuncMayReenterPick() {
+	var c *Composite
+	reentered := false
+	trip := func(int, int, breaker.Counts) bool {
+		if !reentered {
+			reentered = true
+			lease, err := c.Pick()
+			if err == nil {
+				c.RecordLease(lease, breaker.OutcomeSuccess, 0, nil)
+			}
+		}
+		return true
+	}
+	c, _ = s.mustNew(trip, "a")
+	permit, err := c.Allow()
+	s.Require().NoError(err)
+
+	done := make(chan struct{})
+	go func() {
+		c.Record(permit, breaker.OutcomeFailure, 0, nil)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(testReentryWait):
+		s.FailNow("Record did not complete after TripFunc re-entered Pick")
+	}
+	s.Equal(breaker.StateOpen, c.State())
 }
 
 func (s *CompositeSuite) TestTripFreezesAggregate() {
