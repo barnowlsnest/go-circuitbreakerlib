@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
 
@@ -76,10 +77,10 @@ func WithScanInterval(d time.Duration) Option {
 // must not be set; Trip and the composite reopen hook own those.
 func WithParent(opts ...breaker.Option) Option {
 	return func(o *options) error {
-		if err := breaker.ValidateNoPolicies(opts...); err != nil {
+		if err := breakercore.ValidateNoPolicies(opts...); err != nil {
 			return err
 		}
-		if err := breaker.ValidateNoReopenEarly(opts...); err != nil {
+		if err := breakercore.ValidateNoReopenEarly(opts...); err != nil {
 			return err
 		}
 		o.parentOpts = opts
@@ -88,8 +89,8 @@ func WithParent(opts ...breaker.Option) Option {
 }
 
 // WithChild sets the options applied to every leaf AddChild creates. The
-// leaf name is the child id; FillEvents from WithEvents still applies when
-// these options leave Events unset.
+// leaf name is the child id; WithEvents still supplies Events when these
+// options leave it unset.
 func WithChild(opts ...breaker.Option) Option {
 	return func(o *options) error {
 		o.childOpts = opts

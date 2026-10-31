@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/barnowlsnest/go-circuitbreakerlib/internal/breakercore"
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
 
@@ -37,7 +38,7 @@ func (c *Composite) AddChild(id string) (*breaker.Breaker, error) {
 func (c *Composite) attachLeaf(id string, opts ...breaker.Option) (*breaker.Breaker, error) {
 	leafOpts := make([]breaker.Option, 0, len(opts)+2)
 	leafOpts = append(leafOpts, opts...)
-	leafOpts = append(leafOpts, breaker.WithName(id), breaker.FillEvents(c.events))
+	leafOpts = append(leafOpts, breaker.WithName(id), breakercore.FillEvents(c.events))
 	b, err := breaker.New(leafOpts...)
 	if err != nil {
 		return nil, err

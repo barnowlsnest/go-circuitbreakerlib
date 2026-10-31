@@ -104,9 +104,8 @@ func WithEvents(ev Events) Option {
 	}
 }
 
-// FillEvents sets Events only when WithEvents was not used. Registry and
-// composite use it to inject a shared Events value.
-func FillEvents(ev Events) Option {
+//nolint:unused // Linked from internal/breakercore.
+func fillEvents(ev Events) Option {
 	return func(o *options) error {
 		if ev == nil {
 			return fmt.Errorf("%w: nil events", ErrInvalidOption)
@@ -214,9 +213,8 @@ func applyOptions(opts ...Option) (options, error) {
 	return o, nil
 }
 
-// ValidateNoPolicies returns an error if opts include WithPolicies. Composite
-// uses it so Trip stays the only parent policy.
-func ValidateNoPolicies(opts ...Option) error {
+//nolint:unused // Linked from internal/breakercore.
+func validateNoPolicies(opts ...Option) error {
 	o, err := applyOptions(opts...)
 	if err != nil {
 		return err
@@ -227,9 +225,8 @@ func ValidateNoPolicies(opts ...Option) error {
 	return nil
 }
 
-// ValidateNoReopenEarly returns an error if opts include WithReopenEarly.
-// Composite uses it so its trip-based reopen stays the only parent reopen.
-func ValidateNoReopenEarly(opts ...Option) error {
+//nolint:unused // Linked from internal/breakercore.
+func validateNoReopenEarly(opts ...Option) error {
 	o, err := applyOptions(opts...)
 	if err != nil {
 		return err
@@ -240,27 +237,26 @@ func ValidateNoReopenEarly(opts ...Option) error {
 	return nil
 }
 
-// Settings is the clock, classifier, events, and name New would use after
-// applying opts and defaults. Composite reads them to mirror the parent.
-type Settings struct {
+//nolint:unused // Linked from internal/breakercore.
+type settings struct {
 	Clock      func() time.Time
 	Classifier Classifier
 	Events     Events
 	Name       string
 }
 
-// ResolveSettings applies opts and defaults without constructing a Breaker.
-func ResolveSettings(opts ...Option) (Settings, error) {
+//nolint:unused // Linked from internal/breakercore.
+func resolveSettings(opts ...Option) (settings, error) {
 	o, err := applyOptions(opts...)
 	if err != nil {
-		return Settings{}, err
+		return settings{}, err
 	}
 	cfg := o.toConfig()
 	resolved, err := cfg.withDefaults()
 	if err != nil {
-		return Settings{}, err
+		return settings{}, err
 	}
-	return Settings{
+	return settings{
 		Clock:      resolved.Clock,
 		Classifier: resolved.Classifier,
 		Events:     resolved.Events,
