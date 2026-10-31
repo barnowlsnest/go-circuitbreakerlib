@@ -976,8 +976,8 @@ func DefaultGRPCClassifier(ctx context.Context, err error) breaker.Outcome
 Default classifier: `errors.Is(ctx.Err(), context.Canceled)` → Ignored; by
 `status.Code(err)`: `Unavailable`, `DeadlineExceeded`, `ResourceExhausted`,
 `Internal`, `Unknown`, `DataLoss`, `Aborted`, `Canceled` (peer-side, since
-the caller did not cancel) → Failure; all others → Success. The stream interceptor records the outcome
-of stream establishment only (documented limitation). Rejections are
+the caller did not cancel) → Failure; all others → Success. The stream interceptor records establishment errors
+immediately and records successful streams on the first terminal stream result. Rejections are
 returned as `status.Error(rejectCode, ...)` through a custom error type that
 implements `GRPCStatus()` and `Unwrap()`, so `errors.Is(err, breaker.ErrOpen)`
 works. README documents that a service-config retry policy on `UNAVAILABLE`
