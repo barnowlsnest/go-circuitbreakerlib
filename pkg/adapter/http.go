@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/barnowlsnest/go-circuitbreakerlib/pkg/breaker"
 )
@@ -63,9 +64,7 @@ type roundTripper struct {
 	settings settings
 }
 
-// NewHTTPRoundTripper wraps next with a breaker. A nil next means
-// http.DefaultTransport. Elapsed time covers next.RoundTrip only, up to the
-// response headers, not the body read.
+// NewHTTPRoundTripper wraps next with a breaker that records HTTP calls.
 func NewHTTPRoundTripper(next http.RoundTripper, opts ...Option) (http.RoundTripper, error) {
 	s, err := newSettings(protoHTTP, opts)
 	if err != nil {
@@ -84,22 +83,48 @@ func (t *roundTripper) RoundTrip(req *http.Request) (resp *http.Response, err er
 		return nil, err
 	}
 	start := b.Now()
-	done := false
+	record := true
 	defer func() {
-		elapsed := b.Now().Sub(start)
-		if !done {
-			b.Record(p, breaker.OutcomeFailure, elapsed, err)
-			return
+		if record {
+			b.Record(p, breaker.OutcomeFailure, b.Now().Sub(start), err)
 		}
-		b.Record(p, classifyHTTP(b, t.settings.httpClassifier, req.Context(), resp, err), elapsed, err)
 	}()
 	resp, err = t.next.RoundTrip(req)
-	done = true
 	if err != nil && resp != nil {
 		if resp.Body != nil {
 			_ = resp.Body.Close()
 		}
+		recordHTTP(b, p, start, t.settings.httpClassifier, req, nil, err)
+		record = false
 		return nil, err
 	}
+	outcome := classifyHTTP(b, t.settings.httpClassifier, req.Context(), resp, err)
+	if err != nil || resp == nil || resp.Body == nil || resp.Body == http.NoBody || outcome != breaker.OutcomeSuccess {
+		b.Record(p, outcome, b.Now().Sub(start), err)
+		record = false
+		return resp, err
+	}
+	resp.Body = &trackedBody{
+		body:       resp.Body,
+		breaker:    b,
+		resp:       resp,
+		classifier: t.settings.httpClassifier,
+		ctx:        req.Context(),
+		start:      start,
+		permit:     p,
+	}
+	record = false
 	return resp, err
+}
+
+func recordHTTP(
+	b *breaker.Breaker,
+	p breaker.Permit,
+	start time.Time,
+	classifier HTTPClassifier,
+	req *http.Request,
+	resp *http.Response,
+	err error,
+) {
+	b.Record(p, classifyHTTP(b, classifier, req.Context(), resp, err), b.Now().Sub(start), err)
 }

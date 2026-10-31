@@ -172,22 +172,23 @@ func (p tripPolicy) ShouldTrip(counts breaker.Counts) bool {
 	if total == 0 || (open < total && !p.c.trip(open, total, agg)) {
 		return false
 	}
-	frozen := new(breaker.Counts)
-	*frozen = agg
-	p.c.tripAggregate.Store(frozen)
 	return true
 }
 
 func (tripPolicy) Name() string { return tripPolicyName }
 
-// parentObserver sits in front of the user's Events on the parent only and
-// drops the frozen aggregate when the parent closes.
+// parentObserver sits in front of the user's Events on the parent only.
 type parentObserver struct {
 	breaker.Events
 	c *Composite
 }
 
 func (o *parentObserver) OnStateChange(ev breaker.StateChangeEvent) {
+	if ev.To == breaker.StateOpen && ev.Reason == tripPolicyName && o.c.tripAggregate.Load() == nil {
+		frozen := new(breaker.Counts)
+		*frozen = o.c.parent.Counts()
+		o.c.tripAggregate.Store(frozen)
+	}
 	if ev.To == breaker.StateClosed {
 		o.c.tripAggregate.Store(nil)
 	}

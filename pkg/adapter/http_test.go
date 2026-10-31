@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,11 +17,13 @@ import (
 )
 
 const (
+	testBodyContent = "ok"
 	testBodyDelay   = 50 * time.Millisecond
-	testElapsedMax  = testBodyDelay / 2
 	testStatusParam = "status"
 	testURL         = "http://dep.internal/"
 )
+
+var errBodyRead = errors.New("body read failed")
 
 type HTTPSuite struct {
 	suite.Suite
@@ -205,6 +208,72 @@ func (s *HTTPSuite) TestRoundTripPanicRecordsFailure() {
 	s.Equal(uint32(0), s.breaker.Snapshot().InFlight)
 }
 
+func (s *HTTPSuite) TestBodyReadErrorRecordsFailure() {
+	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
+	s.Require().NoError(err)
+	req := s.request(context.Background(), testURL)
+	resp := &http.Response{StatusCode: http.StatusOK, Body: s.body}
+	s.next.On("RoundTrip", req).Return(resp, nil).Once()
+	s.body.On("Read", mock.Anything).Return(0, errBodyRead).Once()
+	s.body.On("Close").Return(nil).Once()
+
+	actual, err := rt.RoundTrip(req)
+	s.Require().NoError(err)
+	s.Same(resp, actual)
+	s.Equal(uint32(0), s.breaker.Counts().Total)
+	body, err := io.ReadAll(actual.Body)
+	s.ErrorIs(err, errBodyRead)
+	s.Empty(body)
+	s.NoError(actual.Body.Close())
+
+	counts := s.breaker.Counts()
+	s.Equal(uint32(1), counts.Total)
+	s.Equal(uint32(1), counts.Failures)
+	s.Equal(breaker.StateOpen, s.breaker.State())
+}
+
+func (s *HTTPSuite) TestBodySuccessRecordsOnce() {
+	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
+	s.Require().NoError(err)
+	req := s.request(context.Background(), testURL)
+	resp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(testBodyContent))}
+	s.next.On("RoundTrip", req).Return(resp, nil).Once()
+
+	actual, err := rt.RoundTrip(req)
+	s.Require().NoError(err)
+	s.Same(resp, actual)
+	s.Equal(uint32(0), s.breaker.Counts().Total)
+	body, err := io.ReadAll(actual.Body)
+	s.Require().NoError(err)
+	s.Equal(testBodyContent, string(body))
+	s.NoError(actual.Body.Close())
+
+	counts := s.breaker.Counts()
+	s.Equal(uint32(1), counts.Total)
+	s.Equal(uint32(1), counts.Successes)
+}
+
+func (s *HTTPSuite) TestBodyCloseAfterErrorRecordsOnce() {
+	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
+	s.Require().NoError(err)
+	req := s.request(context.Background(), testURL)
+	resp := &http.Response{StatusCode: http.StatusOK, Body: s.body}
+	s.next.On("RoundTrip", req).Return(resp, nil).Once()
+	s.body.On("Read", mock.Anything).Return(0, errBodyRead).Once()
+	s.body.On("Close").Return(nil).Once()
+
+	actual, err := rt.RoundTrip(req)
+	s.Require().NoError(err)
+	s.Same(resp, actual)
+	_, err = actual.Body.Read(make([]byte, len(testBodyContent)))
+	s.ErrorIs(err, errBodyRead)
+	s.NoError(actual.Body.Close())
+
+	counts := s.breaker.Counts()
+	s.Equal(uint32(1), counts.Total)
+	s.Equal(uint32(1), counts.Failures)
+}
+
 func (s *HTTPSuite) TestRejectedWhenOpen() {
 	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
 	s.Require().NoError(err)
@@ -264,7 +333,7 @@ func (s *HTTPSuite) TestResponseAndErrorBothSet() {
 	s.Equal(uint32(1), s.breaker.Counts().Failures)
 }
 
-func (s *HTTPSuite) TestElapsedExcludesBody() {
+func (s *HTTPSuite) TestElapsedIncludesBody() {
 	rt, err := NewHTTPRoundTripper(nil, WithBreaker(s.breaker))
 	s.Require().NoError(err)
 	srv := s.server()
@@ -275,6 +344,6 @@ func (s *HTTPSuite) TestElapsedExcludesBody() {
 	s.NoError(resp.Body.Close())
 	s.Equal("late", strings.TrimSpace(string(body)))
 	s.events.AssertCalled(s.T(), "OnCall", mock.MatchedBy(func(ev breaker.CallEvent) bool {
-		return ev.Outcome == breaker.OutcomeSuccess && ev.Elapsed < testElapsedMax
+		return ev.Outcome == breaker.OutcomeSuccess && ev.Elapsed >= testBodyDelay
 	}))
 }

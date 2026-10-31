@@ -285,7 +285,7 @@ func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration, err e
 	}
 	slow := b.cfg.SlowCallDuration > 0 && elapsed > b.cfg.SlowCallDuration
 	b.win.record(now, outcome, slow)
-	ev, changed, panics := b.evaluate(now, s, outcome)
+	ev, changed, panics := b.evaluate(now, epoch, s, outcome)
 	b.mu.Unlock()
 	for _, hp := range panics {
 		b.fireHookPanic(hp.name, hp.recovered)
@@ -296,20 +296,27 @@ func (b *Breaker) Record(p Permit, outcome Outcome, elapsed time.Duration, err e
 	}
 }
 
-// hookPanic is a panic recovered under the lock, fired after unlock.
+// hookPanic is a recovered callback panic to fire after unlock.
 type hookPanic struct {
 	recovered any
 	name      string
 }
 
-// evaluate applies the state machine after a recorded outcome, under the lock.
-func (b *Breaker) evaluate(now time.Time, s State, outcome Outcome) (ev StateChangeEvent, changed bool, panics []hookPanic) {
+// evaluate applies the state machine after a recorded outcome.
+func (b *Breaker) evaluate(now time.Time, epoch uint64, s State, outcome Outcome) (ev StateChangeEvent, changed bool, panics []hookPanic) {
 	switch s {
 	case StateClosed:
 		if b.forced.Load() {
 			return ev, false, nil
 		}
-		p, panics := b.tripped(now)
+		counts := b.win.counts(now)
+		b.mu.Unlock()
+		p, panics := b.tripped(counts)
+		b.mu.Lock()
+		current, state := b.state()
+		if current != epoch || state != StateClosed || b.forced.Load() {
+			return ev, false, panics
+		}
 		if p == nil {
 			return ev, false, panics
 		}
@@ -322,7 +329,14 @@ func (b *Breaker) evaluate(now time.Time, s State, outcome Outcome) (ev StateCha
 		if b.probeSuccesses < b.cfg.HalfOpenSuccesses {
 			return ev, false, nil
 		}
-		p, panics := b.tripped(now)
+		counts := b.win.counts(now)
+		b.mu.Unlock()
+		p, panics := b.tripped(counts)
+		b.mu.Lock()
+		current, state := b.state()
+		if current != epoch || state != StateHalfOpen {
+			return ev, false, panics
+		}
 		if p != nil {
 			return b.openWith(now, Reason(p.Name()), b.attempt+1, panics)
 		}
@@ -342,8 +356,7 @@ func (b *Breaker) openWith(now time.Time, reason Reason, attempt int, panics []h
 }
 
 // tripped returns the first policy that trips, running each under recover.
-func (b *Breaker) tripped(now time.Time) (tripped Policy, panics []hookPanic) {
-	counts := b.win.counts(now)
+func (b *Breaker) tripped(counts Counts) (tripped Policy, panics []hookPanic) {
 	for _, p := range b.cfg.Policies {
 		if trip, r := b.shouldTrip(p, counts); r != nil {
 			panics = append(panics, hookPanic{name: hookPolicy, recovered: r})

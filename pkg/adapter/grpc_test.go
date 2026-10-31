@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/interop/grpc_testing"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
@@ -182,7 +184,7 @@ func (s *GRPCSuite) TestUnaryRejectedStatus() {
 	}
 }
 
-func (s *GRPCSuite) TestStreamRecordsEstablishmentOnly() {
+func (s *GRPCSuite) TestStreamRecordsRecvFailure() {
 	stream, err := NewGRPCStreamInterceptor(WithBreaker(s.breaker))
 	s.Require().NoError(err)
 	s.service.On("StreamingOutputCall", mock.Anything, mock.Anything).Return(status.Error(codes.Internal, "late")).Once()
@@ -190,8 +192,80 @@ func (s *GRPCSuite) TestStreamRecordsEstablishmentOnly() {
 	s.Require().NoError(err)
 	_, err = out.Recv()
 	s.Equal(codes.Internal, status.Code(err))
+	s.Equal(breaker.Counts{Total: 1, Failures: 1, ConsecutiveFailures: 1}, s.breaker.Counts())
+}
+
+func (s *GRPCSuite) TestStreamRecordsCleanEOF() {
+	stream, err := NewGRPCStreamInterceptor(WithBreaker(s.breaker))
+	s.Require().NoError(err)
+	s.service.On("StreamingOutputCall", mock.Anything, mock.Anything).Return(nil).Once()
+	out, err := s.client(nil, stream).StreamingOutputCall(context.Background(), &grpc_testing.StreamingOutputCallRequest{})
+	s.Require().NoError(err)
+	_, err = out.Recv()
+	s.ErrorIs(err, io.EOF)
 	s.Equal(breaker.Counts{Total: 1, Successes: 1, ConsecutiveSuccesses: 1}, s.breaker.Counts())
 }
+
+func (s *GRPCSuite) TestStreamRecordsClientStreamingCloseAndRecv() {
+	stream, err := NewGRPCStreamInterceptor(WithBreaker(s.breaker))
+	s.Require().NoError(err)
+	s.service.On("StreamingInputCall", mock.Anything).Return(&grpc_testing.StreamingInputCallResponse{}, nil).Once()
+	in, err := s.client(nil, stream).StreamingInputCall(context.Background())
+	s.Require().NoError(err)
+	resp, err := in.CloseAndRecv()
+	s.Require().NoError(err)
+	s.NotNil(resp)
+	s.Equal(breaker.Counts{Total: 1, Successes: 1, ConsecutiveSuccesses: 1}, s.breaker.Counts())
+}
+
+func (s *GRPCSuite) TestStreamRecordsHeaderFailureOnce() {
+	stream, err := NewGRPCStreamInterceptor(
+		WithBreaker(s.breaker),
+		WithGRPCKey(func(context.Context, string, *grpc.ClientConn) string { return testName }),
+	)
+	s.Require().NoError(err)
+	out, err := stream(context.Background(), &grpc.StreamDesc{}, nil, "/test.Service/Stream",
+		func(context.Context, *grpc.StreamDesc, *grpc.ClientConn, string, ...grpc.CallOption) (grpc.ClientStream, error) {
+			return &testClientStream{headerErr: status.Error(codes.Internal, "header"), recvErr: io.EOF}, nil
+		})
+	s.Require().NoError(err)
+	_, err = out.Header()
+	s.Equal(codes.Internal, status.Code(err))
+	err = out.RecvMsg(&grpc_testing.StreamingOutputCallResponse{})
+	s.ErrorIs(err, io.EOF)
+	s.Equal(breaker.Counts{Total: 1, Failures: 1, ConsecutiveFailures: 1}, s.breaker.Counts())
+}
+
+func (s *GRPCSuite) TestStreamSendEOFLeavesOutcomeForRecv() {
+	stream, err := NewGRPCStreamInterceptor(
+		WithBreaker(s.breaker),
+		WithGRPCKey(func(context.Context, string, *grpc.ClientConn) string { return testName }),
+	)
+	s.Require().NoError(err)
+	out, err := stream(context.Background(), &grpc.StreamDesc{ServerStreams: true, ClientStreams: true}, nil, "/test.Service/Stream",
+		func(context.Context, *grpc.StreamDesc, *grpc.ClientConn, string, ...grpc.CallOption) (grpc.ClientStream, error) {
+			return &testClientStream{sendErr: io.EOF, recvErr: io.EOF}, nil
+		})
+	s.Require().NoError(err)
+	err = out.SendMsg(&grpc_testing.StreamingInputCallRequest{})
+	s.ErrorIs(err, io.EOF)
+	err = out.RecvMsg(&grpc_testing.StreamingOutputCallResponse{})
+	s.ErrorIs(err, io.EOF)
+	s.Equal(breaker.Counts{Total: 1, Successes: 1, ConsecutiveSuccesses: 1}, s.breaker.Counts())
+}
+
+type testClientStream struct {
+	headerErr error
+	recvErr   error
+	sendErr   error
+}
+
+func (s *testClientStream) Header() (metadata.MD, error) { return nil, s.headerErr }
+func (s *testClientStream) Trailer() metadata.MD         { return nil }
+func (s *testClientStream) CloseSend() error             { return nil }
+func (s *testClientStream) Context() context.Context     { return context.Background() }
+func (s *testClientStream) SendMsg(any) error            { return s.sendErr }
+func (s *testClientStream) RecvMsg(any) error            { return s.recvErr }
 
 func (s *GRPCSuite) TestStreamRejected() {
 	stream, err := NewGRPCStreamInterceptor(WithBreaker(s.breaker))

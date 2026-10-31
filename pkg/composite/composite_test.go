@@ -16,6 +16,7 @@ const (
 	testName          = "dep"
 	testChildOpen     = 5 * time.Second
 	testParentOpen    = 30 * time.Second
+	testLongChildOpen = testParentOpen + testChildOpen
 	testScanInterval  = 10 * time.Millisecond
 	testWindowDrain   = 11 * time.Second
 	testRateCalls     = 50
@@ -24,6 +25,7 @@ const (
 	testNeverTrip     = 1 << 30
 	testHalfOpenCalls = 1
 	testAttachRounds  = 500
+	testReentryWait   = time.Second
 )
 
 // baseSuite holds the fixture shared by the composite suites. It has no test
@@ -394,6 +396,37 @@ func (s *CompositeSuite) TestDefaultTrip() {
 	}
 }
 
+func (s *CompositeSuite) TestTripFuncMayReenterPick() {
+	var c *Composite
+	reentered := false
+	trip := func(int, int, breaker.Counts) bool {
+		if !reentered {
+			reentered = true
+			lease, err := c.Pick()
+			if err == nil {
+				c.RecordLease(lease, breaker.OutcomeSuccess, 0, nil)
+			}
+		}
+		return true
+	}
+	c, _ = s.mustNew(trip, "a")
+	permit, err := c.Allow()
+	s.Require().NoError(err)
+
+	done := make(chan struct{})
+	go func() {
+		c.Record(permit, breaker.OutcomeFailure, 0, nil)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(testReentryWait):
+		s.FailNow("Record did not complete after TripFunc re-entered Pick")
+	}
+	s.Equal(breaker.StateOpen, c.State())
+}
+
 func (s *CompositeSuite) TestTripFreezesAggregate() {
 	s.childTrip = testNeverTrip
 	c, leaves := s.mustNew(nil, "a", "b", "c")
@@ -463,6 +496,33 @@ func (s *CompositeSuite) TestClosingRecheckReopens() {
 		return ev.Name == testName && ev.To == breaker.StateClosed
 	}))
 	s.True(c.frozen())
+}
+
+func (s *CompositeSuite) TestHalfOpenFailureKeepsTripAggregate() {
+	s.childTrip = testNeverTrip
+	s.childOpen = testLongChildOpen
+	c, leaves := s.mustNew(nil, "a", "b", "c")
+	s.forceOpen(leaves["a"])
+	s.forceOpen(leaves["b"])
+	s.record(c, testRateCalls, testRateFailures)
+	s.Require().Equal(breaker.StateOpen, c.State())
+	frozen := c.tripAggregate.Load()
+	s.Require().NotNil(frozen)
+	s.Equal(uint32(testRateCalls), frozen.Total)
+
+	s.clock.advance(testParentOpen)
+	l, err := c.Pick()
+	s.Require().NoError(err)
+	s.Equal("c", l.ID())
+	c.RecordLease(l, breaker.OutcomeFailure, 0, nil)
+	s.Require().Equal(breaker.StateOpen, c.State())
+
+	frozen = c.tripAggregate.Load()
+	s.Require().NotNil(frozen)
+	s.Equal(uint32(testRateCalls), frozen.Total)
+	_, err = c.Pick()
+	s.ErrorIs(err, breaker.ErrOpen)
+	s.Equal(breaker.StateOpen, c.State())
 }
 
 func (s *CompositeSuite) TestTripAggregateClearedOnClose() {

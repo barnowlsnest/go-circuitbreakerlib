@@ -144,8 +144,7 @@ func NewGRPCUnaryInterceptor(opts ...Option) (grpc.UnaryClientInterceptor, error
 }
 
 // NewGRPCStreamInterceptor returns a client interceptor that records the
-// outcome of stream establishment only. Errors on the stream afterwards are
-// not seen by the breaker.
+// outcome of a stream call.
 func NewGRPCStreamInterceptor(opts ...Option) (grpc.StreamClientInterceptor, error) {
 	c, err := newGRPCClient(opts...)
 	if err != nil {
@@ -196,14 +195,25 @@ func (c *grpcClient) stream(
 	start := b.Now()
 	done := false
 	defer func() {
-		elapsed := b.Now().Sub(start)
 		if !done {
-			b.Record(p, breaker.OutcomeFailure, elapsed, err)
-			return
+			b.Record(p, breaker.OutcomeFailure, b.Now().Sub(start), err)
 		}
-		b.Record(p, classifyGRPC(b, c.settings.grpcClassifier, ctx, err), elapsed, err)
 	}()
 	stream, err = streamer(ctx, desc, cc, method, callOpts...)
 	done = true
+	if err != nil {
+		b.Record(p, classifyGRPC(b, c.settings.grpcClassifier, ctx, err), b.Now().Sub(start), err)
+		return nil, err
+	}
+	serverStreams := desc != nil && desc.ServerStreams
+	stream = &trackedClientStream{
+		ClientStream:  stream,
+		breaker:       b,
+		classifier:    c.settings.grpcClassifier,
+		ctx:           ctx,
+		start:         start,
+		permit:        p,
+		serverStreams: serverStreams,
+	}
 	return stream, err
 }
