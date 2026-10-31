@@ -611,7 +611,9 @@ func (s *BreakerSuite) TestTenThousandBreakersDoNotSpawnGoroutines() {
 		breakers = append(breakers, b)
 		_ = i
 	}
-	s.Equal(before, runtime.NumGoroutine())
+	// Allow unrelated runtime goroutines to exit during the loop; only growth
+	// would mean New started work.
+	s.LessOrEqual(runtime.NumGoroutine(), before)
 	s.Len(breakers, n)
 }
 
