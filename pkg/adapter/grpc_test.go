@@ -236,16 +236,35 @@ func (s *GRPCSuite) TestStreamRecordsHeaderFailureOnce() {
 	s.Equal(breaker.Counts{Total: 1, Failures: 1, ConsecutiveFailures: 1}, s.breaker.Counts())
 }
 
+func (s *GRPCSuite) TestStreamSendEOFLeavesOutcomeForRecv() {
+	stream, err := NewGRPCStreamInterceptor(
+		WithBreaker(s.breaker),
+		WithGRPCKey(func(context.Context, string, *grpc.ClientConn) string { return testName }),
+	)
+	s.Require().NoError(err)
+	out, err := stream(context.Background(), &grpc.StreamDesc{ServerStreams: true, ClientStreams: true}, nil, "/test.Service/Stream",
+		func(context.Context, *grpc.StreamDesc, *grpc.ClientConn, string, ...grpc.CallOption) (grpc.ClientStream, error) {
+			return &testClientStream{sendErr: io.EOF, recvErr: io.EOF}, nil
+		})
+	s.Require().NoError(err)
+	err = out.SendMsg(&grpc_testing.StreamingInputCallRequest{})
+	s.ErrorIs(err, io.EOF)
+	err = out.RecvMsg(&grpc_testing.StreamingOutputCallResponse{})
+	s.ErrorIs(err, io.EOF)
+	s.Equal(breaker.Counts{Total: 1, Successes: 1, ConsecutiveSuccesses: 1}, s.breaker.Counts())
+}
+
 type testClientStream struct {
 	headerErr error
 	recvErr   error
+	sendErr   error
 }
 
 func (s *testClientStream) Header() (metadata.MD, error) { return nil, s.headerErr }
 func (s *testClientStream) Trailer() metadata.MD         { return nil }
 func (s *testClientStream) CloseSend() error             { return nil }
 func (s *testClientStream) Context() context.Context     { return context.Background() }
-func (s *testClientStream) SendMsg(any) error            { return nil }
+func (s *testClientStream) SendMsg(any) error            { return s.sendErr }
 func (s *testClientStream) RecvMsg(any) error            { return s.recvErr }
 
 func (s *GRPCSuite) TestStreamRejected() {

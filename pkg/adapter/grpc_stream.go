@@ -68,6 +68,9 @@ func (s *trackedClientStream) SendMsg(m any) error {
 	err = s.ClientStream.SendMsg(m)
 	done = true
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return err
+		}
 		s.record(s.classify(err), err)
 	}
 	return err
