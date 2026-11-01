@@ -186,7 +186,7 @@ type parentObserver struct {
 func (o *parentObserver) OnStateChange(ev breaker.StateChangeEvent) {
 	if ev.To == breaker.StateOpen && ev.Reason == tripPolicyName && o.c.tripAggregate.Load() == nil {
 		frozen := new(breaker.Counts)
-		*frozen = o.c.parent.Counts()
+		*frozen = ev.Counts
 		o.c.tripAggregate.Store(frozen)
 	}
 	if ev.To == breaker.StateClosed {

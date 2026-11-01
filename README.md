@@ -477,7 +477,10 @@ will re-enter the interceptor while the breaker is Open; set
 `FailedPrecondition`. `DefaultGRPCClassifier` counts `Unavailable`,
 `DeadlineExceeded`, `ResourceExhausted`, `Internal`, `Unknown`, `DataLoss`,
 `Aborted`, and `Canceled` as failures and every other code as success. The
-stream interceptor records stream establishment only.
+stream interceptor records establishment errors immediately and successful
+streams on the first terminal Recv/Send/Header/EOF. Long-lived streams that
+run as HalfOpen probes must finish within `ProbeTimeout` (default 60s), or
+the probe slot expires and the breaker reopens.
 
 ### TCP
 
@@ -510,10 +513,9 @@ deadline is ignored because a stalled peer and a short caller deadline look
 the same there. A successful operation counts as a success only when its
 permit is a half-open probe, so pooled connections that never re-dial can
 still close a HalfOpen breaker without ordinary traffic flooding the
-window. Only `Write` acts as a probe: a `Read` handed a probe slot gives it
-back at once and runs untracked, because a `Read` on an idle pooled
-connection can block for as long as the peer stays quiet and would hold the
-HalfOpen breaker hostage. Tracking is off by default because the wrapper hides
+window. Only `Write` acts as a probe: while HalfOpen, `Read` skips `Allow`
+and runs untracked so it never contends for the probe slot. Tracking is off
+by default because the wrapper hides
 `*net.TCPConn` from TLS and HTTP/2 stacks that type-assert on it; the
 wrapper exposes `Unwrap() net.Conn` and forwards `ReadFrom`, `WriteTo`,
 `CloseRead`, `CloseWrite`, and `SyscallConn`.

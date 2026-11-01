@@ -498,6 +498,37 @@ func (s *CompositeSuite) TestClosingRecheckReopens() {
 	s.True(c.frozen())
 }
 
+func (s *CompositeSuite) TestFrozenAggregateUsesTripTimeCounts() {
+	s.childTrip = testNeverTrip
+	const windowSize = 10 * time.Second
+	var drained bool
+	trip := func(_ int, _ int, agg breaker.Counts) bool {
+		if !drained && agg.Failures > 0 {
+			drained = true
+			s.clock.advance(windowSize)
+			return true
+		}
+		return agg.Failures > 0
+	}
+	opts := append(s.opts(testName, trip), WithParent(
+		breaker.WithOpenDuration(testParentOpen),
+		breaker.WithHalfOpenMaxCalls(testHalfOpenCalls),
+		breaker.WithClock(s.clock.Now),
+		breaker.WithWindow(breaker.SlidingTimeWindow{Size: windowSize, Buckets: 10}),
+	))
+	c, err := New(opts...)
+	s.Require().NoError(err)
+	_, err = c.AddChild("a")
+	s.Require().NoError(err)
+	s.record(c, 1, 1)
+	s.Require().Equal(breaker.StateOpen, c.State())
+	s.Equal(uint32(0), c.Counts().Total, "the live window drained during ShouldTrip")
+	frozen := c.tripAggregate.Load()
+	s.Require().NotNil(frozen)
+	s.Equal(uint32(1), frozen.Total, "frozen aggregate must be the trip-time snapshot")
+	s.Equal(uint32(1), frozen.Failures)
+}
+
 func (s *CompositeSuite) TestHalfOpenFailureKeepsTripAggregate() {
 	s.childTrip = testNeverTrip
 	s.childOpen = testLongChildOpen

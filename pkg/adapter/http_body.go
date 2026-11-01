@@ -51,7 +51,7 @@ func (b *trackedBody) Close() error {
 	}()
 	err := b.body.Close()
 	done = true
-	b.record(b.classify(nil), nil)
+	b.record(b.classify(err), err)
 	return err
 }
 

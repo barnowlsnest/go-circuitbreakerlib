@@ -23,7 +23,10 @@ const (
 	testURL         = "http://dep.internal/"
 )
 
-var errBodyRead = errors.New("body read failed")
+var (
+	errBodyRead  = errors.New("body read failed")
+	errBodyClose = errors.New("body close failed")
+)
 
 type HTTPSuite struct {
 	suite.Suite
@@ -251,6 +254,26 @@ func (s *HTTPSuite) TestBodySuccessRecordsOnce() {
 	counts := s.breaker.Counts()
 	s.Equal(uint32(1), counts.Total)
 	s.Equal(uint32(1), counts.Successes)
+}
+
+func (s *HTTPSuite) TestBodyCloseErrorRecordsFailure() {
+	rt, err := NewHTTPRoundTripper(s.next, WithBreaker(s.breaker))
+	s.Require().NoError(err)
+	req := s.request(context.Background(), testURL)
+	resp := &http.Response{StatusCode: http.StatusOK, Body: s.body}
+	s.next.On("RoundTrip", req).Return(resp, nil).Once()
+	s.body.On("Close").Return(errBodyClose).Once()
+
+	actual, err := rt.RoundTrip(req)
+	s.Require().NoError(err)
+	s.Same(resp, actual)
+	s.Equal(uint32(0), s.breaker.Counts().Total)
+	s.ErrorIs(actual.Body.Close(), errBodyClose)
+
+	counts := s.breaker.Counts()
+	s.Equal(uint32(1), counts.Total)
+	s.Equal(uint32(1), counts.Failures)
+	s.Equal(breaker.StateOpen, s.breaker.State())
 }
 
 func (s *HTTPSuite) TestBodyCloseAfterErrorRecordsOnce() {

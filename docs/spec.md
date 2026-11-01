@@ -956,7 +956,7 @@ func DefaultHTTPClassifier(ctx context.Context, resp *http.Response, err error) 
 
 Default classifier: `errors.Is(ctx.Err(), context.Canceled)` → Ignored;
 transport `err != nil` (including deadline exceeded) → Failure; status ≥ 500
-→ Failure; 408 → Failure; everything else, including 429, → Success. Successful responses with a real body record when the body ends;
+→ Failure; 408 → Failure; everything else, including 429, → Success. Successful responses with a real body record when the body ends (EOF or `Close`); a non-nil `Close` error is classified like a transport error;
 nil and `http.NoBody` responses, transport errors, and header failures record immediately.
 
 ### `grpc.go`
@@ -1017,12 +1017,12 @@ stalled peer and a caller-set deadline are indistinguishable at this level;
 a successful operation is recorded as `OutcomeSuccess` when
 `permit.IsProbe()` is true, so pooled connections that never re-dial can
 still close a HalfOpen breaker, and as `OutcomeIgnored` otherwise, so
-ordinary traffic does not swamp the window. Only `Write` acts as a probe: a
-`Read` that is handed a probe slot releases it at once (`OutcomeIgnored`)
-and runs untracked, because a `Read` on an idle pooled connection blocks
-for as long as the peer stays quiet and would otherwise hold the HalfOpen
-breaker's only slot until `ProbeTimeout` reopened it. Cost is one
-`Allow`+`Record` per operation; the non-probe success path is lock-free.
+ordinary traffic does not swamp the window. Only `Write` acts as a probe: while HalfOpen, `Read` skips `Allow`
+entirely and runs untracked, because a `Read` on an idle pooled connection
+blocks for as long as the peer stays quiet and would otherwise contend for
+(or hold) the HalfOpen breaker's only probe slot until `ProbeTimeout`
+reopened it. Cost is one `Allow`+`Record` per tracked operation; the
+non-probe success path is lock-free.
 
 Errors returned by the wrapper for a rejection implement `net.Error`
 (`Timeout()` false, `Temporary()` false) and unwrap to `*RejectedError`, so
