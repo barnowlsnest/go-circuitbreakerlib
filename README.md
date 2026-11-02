@@ -12,8 +12,7 @@ nothing on the hot path. Around it: a keyed registry, composite breakers
 that open a parent when enough of its children are down, one adapter per
 protocol, and hooks for logging and metrics.
 
-**Status:** v0. The exported API may change between minor versions until
-the adapters have run in a real gateway.
+**Status:** v0. The exported API may change between minor versions.
 
 ## Installation
 
