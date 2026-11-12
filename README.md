@@ -37,6 +37,17 @@ Requires Go 1.27 or later.
 | [`pkg/composite`](pkg/composite/doc.go)  | parent over children, `Lease`, `Pick`, `FromHierarchy`                            | `breaker`, go-datalib `tree`     |
 | [`pkg/adapter`](pkg/adapter/doc.go)      | `http.RoundTripper`, gRPC client interceptors, `net` dialer with tracked conns    | `breaker`, `registry`, grpc      |
 
+## Built on
+
+Two other [barnowlsnest](https://github.com/barnowlsnest) libraries:
+
+| Library                                                       | Package used     | Used by         | For                                                      |
+|---------------------------------------------------------------|------------------|-----------------|----------------------------------------------------------|
+| [go-logslib](https://github.com/barnowlsnest/go-logslib) v2   | `pkg/logger`     | `pkg/hooks`     | the logger behind `LogEvents`                            |
+| [go-datalib](https://github.com/barnowlsnest/go-datalib) v5   | `pkg/tree`       | `pkg/composite` | `tree.HierarchyModel`, the input to `FromHierarchy`      |
+
+`pkg/breaker` uses only the standard library.
+
 Every code block below is copied from an `Example` function that `go test`
 compiles and runs.
 
