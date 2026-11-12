@@ -1,0 +1,798 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" role="img" aria-labelledby="title desc">
+<title id="title">How composite breakers work</title>
+<desc id="desc">A payments composite has two regions, eu-west and us-east, each with three hosts. Pick walks the tree to a closed host. When a host opens, Pick skips it. When two hosts in a region open, the region trips. When both regions are open, the root trips and calls fail fast. When the hosts' backoff elapses they go HalfOpen, the parents recover early, and a probe closes the path.</desc>
+<style>
+:root, svg {
+  --bg:#ffffff; --card:#f6f8fa; --edge:#d0d7de; --fg:#1f2328; --muted:#59636e;
+  --ok:#1a7f37; --bad:#cf222e; --probe:#bf8700; --req:#0969da;
+}
+@media (prefers-color-scheme: dark) {
+  :root, svg {
+    --bg:#0d1117; --card:#161b22; --edge:#30363d; --fg:#e6edf3; --muted:#9198a1;
+    --ok:#3fb950; --bad:#f85149; --probe:#d29922; --req:#4493f8;
+  }
+}
+text { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill:var(--fg); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.muted { fill:var(--muted); }
+.ok { fill:var(--ok); } .bad { fill:var(--bad); } .probe { fill:var(--probe); }
+.a, .pk { animation-duration:24.0s; animation-iteration-count:infinite; animation-timing-function:linear; }
+.pk { opacity:0; }
+.box { fill:var(--card); stroke:var(--edge); stroke-width:2.2; }
+.edge { stroke:var(--edge); stroke-width:2; }
+@media (prefers-reduced-motion: reduce) { .a, .pk { animation-play-state:paused; } }
+@keyframes p0 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  0.667% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  0.833% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  1.646% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  3.715% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--req)}
+  5.195% {opacity:1;transform:translate(-290.0px,252.0px);fill:var(--req)}
+  5.529% {opacity:1;transform:translate(-290.0px,252.0px);fill:var(--ok)}
+  7.009% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--ok)}
+  9.078% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  9.891% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  10.058% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p0{animation-name:p0}
+@keyframes p1 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  3.583% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  3.750% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  4.562% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  6.632% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--req)}
+  8.112% {opacity:1;transform:translate(70.0px,252.0px);fill:var(--req)}
+  8.445% {opacity:1;transform:translate(70.0px,252.0px);fill:var(--ok)}
+  9.926% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--ok)}
+  11.995% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  12.808% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  12.974% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p1{animation-name:p1}
+@keyframes p2 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  6.500% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  6.667% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  7.479% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  9.548% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--req)}
+  10.486% {opacity:1;transform:translate(-180.0px,252.0px);fill:var(--req)}
+  10.819% {opacity:1;transform:translate(-180.0px,252.0px);fill:var(--ok)}
+  11.757% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--ok)}
+  13.826% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  14.638% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  14.805% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p2{animation-name:p2}
+@keyframes p3 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  9.417% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  9.583% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  10.396% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  12.465% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--req)}
+  13.402% {opacity:1;transform:translate(180.0px,252.0px);fill:var(--req)}
+  13.736% {opacity:1;transform:translate(180.0px,252.0px);fill:var(--ok)}
+  14.673% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--ok)}
+  16.742% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  17.555% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  17.722% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p3{animation-name:p3}
+@keyframes p4 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  12.333% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  12.500% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  13.312% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  15.382% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--req)}
+  16.862% {opacity:1;transform:translate(-70.0px,252.0px);fill:var(--req)}
+  17.195% {opacity:1;transform:translate(-70.0px,252.0px);fill:var(--ok)}
+  18.676% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--ok)}
+  20.745% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  21.558% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  21.724% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p4{animation-name:p4}
+@keyframes p5 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  16.500% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  16.667% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  17.479% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  19.548% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--req)}
+  21.029% {opacity:1;transform:translate(-290.0px,252.0px);fill:var(--req)}
+  21.362% {opacity:1;transform:translate(-290.0px,252.0px);fill:var(--bad)}
+  22.843% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--bad)}
+  24.912% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--bad)}
+  25.724% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  25.891% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+}
+.p5{animation-name:p5}
+@keyframes p6 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  22.333% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  22.500% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  23.313% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  25.382% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--req)}
+  26.319% {opacity:1;transform:translate(-180.0px,252.0px);fill:var(--req)}
+  26.652% {opacity:1;transform:translate(-180.0px,252.0px);fill:var(--ok)}
+  27.590% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--ok)}
+  29.659% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  30.472% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  30.638% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p6{animation-name:p6}
+@keyframes p7 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  25.250% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  25.417% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  26.229% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  28.298% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--req)}
+  29.779% {opacity:1;transform:translate(290.0px,252.0px);fill:var(--req)}
+  30.112% {opacity:1;transform:translate(290.0px,252.0px);fill:var(--ok)}
+  31.593% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--ok)}
+  33.662% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  34.474% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  34.641% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p7{animation-name:p7}
+@keyframes p8 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  28.167% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  28.333% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  29.146% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  31.215% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--req)}
+  32.695% {opacity:1;transform:translate(-70.0px,252.0px);fill:var(--req)}
+  33.029% {opacity:1;transform:translate(-70.0px,252.0px);fill:var(--ok)}
+  34.509% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--ok)}
+  36.578% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  37.391% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  37.558% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p8{animation-name:p8}
+@keyframes p9 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  33.167% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  33.333% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  34.146% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  36.215% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--req)}
+  37.152% {opacity:1;transform:translate(-180.0px,252.0px);fill:var(--req)}
+  37.486% {opacity:1;transform:translate(-180.0px,252.0px);fill:var(--bad)}
+  38.423% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--bad)}
+  40.492% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--bad)}
+  41.305% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  41.472% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+}
+.p9{animation-name:p9}
+@keyframes p10 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  41.500% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  41.667% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  42.479% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  44.548% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--req)}
+  46.029% {opacity:1;transform:translate(70.0px,252.0px);fill:var(--req)}
+  46.362% {opacity:1;transform:translate(70.0px,252.0px);fill:var(--ok)}
+  47.843% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--ok)}
+  49.912% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  50.724% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  50.891% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p10{animation-name:p10}
+@keyframes p11 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  44.417% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  44.583% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  45.396% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  47.465% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--req)}
+  48.945% {opacity:1;transform:translate(-70.0px,252.0px);fill:var(--req)}
+  49.279% {opacity:1;transform:translate(-70.0px,252.0px);fill:var(--ok)}
+  50.759% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--ok)}
+  52.828% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  53.641% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  53.808% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p11{animation-name:p11}
+@keyframes p12 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  46.500% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  46.667% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  47.479% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  49.548% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--req)}
+  51.029% {opacity:1;transform:translate(290.0px,252.0px);fill:var(--req)}
+  51.362% {opacity:1;transform:translate(290.0px,252.0px);fill:var(--ok)}
+  52.843% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--ok)}
+  54.912% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  55.724% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  55.891% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p12{animation-name:p12}
+@keyframes p13 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  50.667% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  50.833% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  51.646% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  53.715% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--req)}
+  54.652% {opacity:1;transform:translate(180.0px,252.0px);fill:var(--req)}
+  54.986% {opacity:1;transform:translate(180.0px,252.0px);fill:var(--bad)}
+  55.923% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--bad)}
+  57.992% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--bad)}
+  58.805% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  58.972% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+}
+.p13{animation-name:p13}
+@keyframes p14 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  53.583% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  53.750% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  54.562% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  56.632% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--req)}
+  58.112% {opacity:1;transform:translate(290.0px,252.0px);fill:var(--req)}
+  58.445% {opacity:1;transform:translate(290.0px,252.0px);fill:var(--bad)}
+  59.926% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--bad)}
+  61.995% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--bad)}
+  62.808% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  62.974% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+}
+.p14{animation-name:p14}
+@keyframes p15 {
+  0.000% {opacity:0;transform:translate(0.0px,18.0px);fill:var(--req)}
+  63.167% {opacity:0;transform:translate(0.0px,18.0px);fill:var(--req)}
+  63.333% {opacity:1;transform:translate(0.0px,18.0px);fill:var(--req)}
+  64.271% {opacity:1;transform:translate(0.0px,48.0px);fill:var(--req)}
+  64.604% {opacity:1;transform:translate(0.0px,48.0px);fill:var(--bad)}
+  65.542% {opacity:1;transform:translate(0.0px,18.0px);fill:var(--bad)}
+  65.708% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+}
+.p15{animation-name:p15}
+@keyframes p16 {
+  0.000% {opacity:0;transform:translate(0.0px,18.0px);fill:var(--req)}
+  65.667% {opacity:0;transform:translate(0.0px,18.0px);fill:var(--req)}
+  65.833% {opacity:1;transform:translate(0.0px,18.0px);fill:var(--req)}
+  66.771% {opacity:1;transform:translate(0.0px,48.0px);fill:var(--req)}
+  67.104% {opacity:1;transform:translate(0.0px,48.0px);fill:var(--bad)}
+  68.042% {opacity:1;transform:translate(0.0px,18.0px);fill:var(--bad)}
+  68.208% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+}
+.p16{animation-name:p16}
+@keyframes p17 {
+  0.000% {opacity:0;transform:translate(0.0px,18.0px);fill:var(--req)}
+  68.167% {opacity:0;transform:translate(0.0px,18.0px);fill:var(--req)}
+  68.333% {opacity:1;transform:translate(0.0px,18.0px);fill:var(--req)}
+  69.271% {opacity:1;transform:translate(0.0px,48.0px);fill:var(--req)}
+  69.604% {opacity:1;transform:translate(0.0px,48.0px);fill:var(--bad)}
+  70.542% {opacity:1;transform:translate(0.0px,18.0px);fill:var(--bad)}
+  70.708% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--bad)}
+}
+.p17{animation-name:p17}
+@keyframes p18 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--probe)}
+  72.750% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--probe)}
+  72.917% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--probe)}
+  73.729% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--probe)}
+  75.798% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--probe)}
+  76.736% {opacity:1;transform:translate(180.0px,252.0px);fill:var(--probe)}
+  77.069% {opacity:1;transform:translate(180.0px,252.0px);fill:var(--ok)}
+  78.007% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--ok)}
+  80.076% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  80.888% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  81.055% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p18{animation-name:p18}
+@keyframes p19 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--probe)}
+  81.500% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--probe)}
+  81.667% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--probe)}
+  82.479% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--probe)}
+  84.548% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--probe)}
+  86.029% {opacity:1;transform:translate(290.0px,252.0px);fill:var(--probe)}
+  86.362% {opacity:1;transform:translate(290.0px,252.0px);fill:var(--ok)}
+  87.843% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--ok)}
+  89.912% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  90.724% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  90.891% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p19{animation-name:p19}
+@keyframes p20 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  84.417% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--req)}
+  84.583% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--req)}
+  85.396% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--req)}
+  87.465% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--req)}
+  88.945% {opacity:1;transform:translate(70.0px,252.0px);fill:var(--req)}
+  89.279% {opacity:1;transform:translate(70.0px,252.0px);fill:var(--ok)}
+  90.759% {opacity:1;transform:translate(180.0px,162.0px);fill:var(--ok)}
+  92.828% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  93.641% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  93.808% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p20{animation-name:p20}
+@keyframes p21 {
+  0.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--probe)}
+  89.417% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--probe)}
+  89.583% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--probe)}
+  90.396% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--probe)}
+  92.465% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--probe)}
+  93.945% {opacity:1;transform:translate(-290.0px,252.0px);fill:var(--probe)}
+  94.279% {opacity:1;transform:translate(-290.0px,252.0px);fill:var(--ok)}
+  95.759% {opacity:1;transform:translate(-180.0px,162.0px);fill:var(--ok)}
+  97.828% {opacity:1;transform:translate(0.0px,78.0px);fill:var(--ok)}
+  98.641% {opacity:1;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  98.808% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,0.0px);fill:var(--ok)}
+}
+.p21{animation-name:p21}
+@keyframes b_root {
+  0.000% {stroke:var(--ok)}
+  61.828% {stroke:var(--ok)}
+  61.995% {stroke:var(--bad)}
+  71.292% {stroke:var(--bad)}
+  71.458% {stroke:var(--probe)}
+  79.909% {stroke:var(--probe)}
+  80.076% {stroke:var(--ok)}
+  100.000% {stroke:var(--ok)}
+}
+#n_root{animation-name:b_root}
+@keyframes s_root_0 {
+  0.000% {opacity:1}
+  61.828% {opacity:1}
+  61.995% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_root_0{animation-name:s_root_0}
+@keyframes s_root_1 {
+  0.000% {opacity:0}
+  61.828% {opacity:0}
+  61.995% {opacity:1}
+  71.292% {opacity:1}
+  71.458% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_root_1{animation-name:s_root_1}
+@keyframes s_root_2 {
+  0.000% {opacity:0}
+  71.292% {opacity:0}
+  71.458% {opacity:1}
+  79.909% {opacity:1}
+  80.076% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_root_2{animation-name:s_root_2}
+@keyframes s_root_3 {
+  0.000% {opacity:0}
+  79.909% {opacity:0}
+  80.076% {opacity:1}
+  100.000% {opacity:1}
+}
+.s_root_3{animation-name:s_root_3}
+@keyframes b_eu {
+  0.000% {stroke:var(--ok)}
+  38.257% {stroke:var(--ok)}
+  38.423% {stroke:var(--bad)}
+  87.958% {stroke:var(--bad)}
+  88.125% {stroke:var(--probe)}
+  95.593% {stroke:var(--probe)}
+  95.759% {stroke:var(--ok)}
+  100.000% {stroke:var(--ok)}
+}
+#n_eu{animation-name:b_eu}
+@keyframes s_eu_0 {
+  0.000% {opacity:1}
+  38.257% {opacity:1}
+  38.423% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_eu_0{animation-name:s_eu_0}
+@keyframes s_eu_1 {
+  0.000% {opacity:0}
+  38.257% {opacity:0}
+  38.423% {opacity:1}
+  87.958% {opacity:1}
+  88.125% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_eu_1{animation-name:s_eu_1}
+@keyframes s_eu_2 {
+  0.000% {opacity:0}
+  87.958% {opacity:0}
+  88.125% {opacity:1}
+  95.593% {opacity:1}
+  95.759% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_eu_2{animation-name:s_eu_2}
+@keyframes s_eu_3 {
+  0.000% {opacity:0}
+  95.593% {opacity:0}
+  95.759% {opacity:1}
+  100.000% {opacity:1}
+}
+.s_eu_3{animation-name:s_eu_3}
+@keyframes b_us {
+  0.000% {stroke:var(--ok)}
+  59.759% {stroke:var(--ok)}
+  59.926% {stroke:var(--bad)}
+  71.292% {stroke:var(--bad)}
+  71.458% {stroke:var(--probe)}
+  77.840% {stroke:var(--probe)}
+  78.007% {stroke:var(--ok)}
+  100.000% {stroke:var(--ok)}
+}
+#n_us{animation-name:b_us}
+@keyframes s_us_0 {
+  0.000% {opacity:1}
+  59.759% {opacity:1}
+  59.926% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_us_0{animation-name:s_us_0}
+@keyframes s_us_1 {
+  0.000% {opacity:0}
+  59.759% {opacity:0}
+  59.926% {opacity:1}
+  71.292% {opacity:1}
+  71.458% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_us_1{animation-name:s_us_1}
+@keyframes s_us_2 {
+  0.000% {opacity:0}
+  71.292% {opacity:0}
+  71.458% {opacity:1}
+  77.840% {opacity:1}
+  78.007% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_us_2{animation-name:s_us_2}
+@keyframes s_us_3 {
+  0.000% {opacity:0}
+  77.840% {opacity:0}
+  78.007% {opacity:1}
+  100.000% {opacity:1}
+}
+.s_us_3{animation-name:s_us_3}
+@keyframes b_e1 {
+  0.000% {stroke:var(--ok)}
+  21.195% {stroke:var(--ok)}
+  21.362% {stroke:var(--bad)}
+  87.333% {stroke:var(--bad)}
+  87.500% {stroke:var(--probe)}
+  94.112% {stroke:var(--probe)}
+  94.279% {stroke:var(--ok)}
+  100.000% {stroke:var(--ok)}
+}
+#n_e1{animation-name:b_e1}
+@keyframes s_e1_0 {
+  0.000% {opacity:1}
+  21.195% {opacity:1}
+  21.362% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_e1_0{animation-name:s_e1_0}
+@keyframes s_e1_1 {
+  0.000% {opacity:0}
+  21.195% {opacity:0}
+  21.362% {opacity:1}
+  87.333% {opacity:1}
+  87.500% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_e1_1{animation-name:s_e1_1}
+@keyframes s_e1_2 {
+  0.000% {opacity:0}
+  87.333% {opacity:0}
+  87.500% {opacity:1}
+  94.112% {opacity:1}
+  94.279% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_e1_2{animation-name:s_e1_2}
+@keyframes s_e1_3 {
+  0.000% {opacity:0}
+  94.112% {opacity:0}
+  94.279% {opacity:1}
+  100.000% {opacity:1}
+}
+.s_e1_3{animation-name:s_e1_3}
+@keyframes b_e2 {
+  0.000% {stroke:var(--ok)}
+  37.319% {stroke:var(--ok)}
+  37.486% {stroke:var(--bad)}
+  87.333% {stroke:var(--bad)}
+  87.500% {stroke:var(--probe)}
+  100.000% {stroke:var(--probe)}
+}
+#n_e2{animation-name:b_e2}
+@keyframes s_e2_0 {
+  0.000% {opacity:1}
+  37.319% {opacity:1}
+  37.486% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_e2_0{animation-name:s_e2_0}
+@keyframes s_e2_1 {
+  0.000% {opacity:0}
+  37.319% {opacity:0}
+  37.486% {opacity:1}
+  87.333% {opacity:1}
+  87.500% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_e2_1{animation-name:s_e2_1}
+@keyframes s_e2_2 {
+  0.000% {opacity:0}
+  87.333% {opacity:0}
+  87.500% {opacity:1}
+  100.000% {opacity:1}
+}
+.s_e2_2{animation-name:s_e2_2}
+@keyframes b_e3 {
+  0.000% {stroke:var(--ok)}
+  100.000% {stroke:var(--ok)}
+}
+#n_e3{animation-name:b_e3}
+@keyframes s_e3_0 {
+  0.000% {opacity:1}
+  100.000% {opacity:1}
+}
+.s_e3_0{animation-name:s_e3_0}
+@keyframes b_u1 {
+  0.000% {stroke:var(--ok)}
+  100.000% {stroke:var(--ok)}
+}
+#n_u1{animation-name:b_u1}
+@keyframes s_u1_0 {
+  0.000% {opacity:1}
+  100.000% {opacity:1}
+}
+.s_u1_0{animation-name:s_u1_0}
+@keyframes b_u2 {
+  0.000% {stroke:var(--ok)}
+  54.819% {stroke:var(--ok)}
+  54.986% {stroke:var(--bad)}
+  70.667% {stroke:var(--bad)}
+  70.833% {stroke:var(--probe)}
+  76.902% {stroke:var(--probe)}
+  77.069% {stroke:var(--ok)}
+  100.000% {stroke:var(--ok)}
+}
+#n_u2{animation-name:b_u2}
+@keyframes s_u2_0 {
+  0.000% {opacity:1}
+  54.819% {opacity:1}
+  54.986% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_u2_0{animation-name:s_u2_0}
+@keyframes s_u2_1 {
+  0.000% {opacity:0}
+  54.819% {opacity:0}
+  54.986% {opacity:1}
+  70.667% {opacity:1}
+  70.833% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_u2_1{animation-name:s_u2_1}
+@keyframes s_u2_2 {
+  0.000% {opacity:0}
+  70.667% {opacity:0}
+  70.833% {opacity:1}
+  76.902% {opacity:1}
+  77.069% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_u2_2{animation-name:s_u2_2}
+@keyframes s_u2_3 {
+  0.000% {opacity:0}
+  76.902% {opacity:0}
+  77.069% {opacity:1}
+  100.000% {opacity:1}
+}
+.s_u2_3{animation-name:s_u2_3}
+@keyframes b_u3 {
+  0.000% {stroke:var(--ok)}
+  58.279% {stroke:var(--ok)}
+  58.445% {stroke:var(--bad)}
+  70.667% {stroke:var(--bad)}
+  70.833% {stroke:var(--probe)}
+  86.195% {stroke:var(--probe)}
+  86.362% {stroke:var(--ok)}
+  100.000% {stroke:var(--ok)}
+}
+#n_u3{animation-name:b_u3}
+@keyframes s_u3_0 {
+  0.000% {opacity:1}
+  58.279% {opacity:1}
+  58.445% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_u3_0{animation-name:s_u3_0}
+@keyframes s_u3_1 {
+  0.000% {opacity:0}
+  58.279% {opacity:0}
+  58.445% {opacity:1}
+  70.667% {opacity:1}
+  70.833% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_u3_1{animation-name:s_u3_1}
+@keyframes s_u3_2 {
+  0.000% {opacity:0}
+  70.667% {opacity:0}
+  70.833% {opacity:1}
+  86.195% {opacity:1}
+  86.362% {opacity:0}
+  100.000% {opacity:0}
+}
+.s_u3_2{animation-name:s_u3_2}
+@keyframes s_u3_3 {
+  0.000% {opacity:0}
+  86.195% {opacity:0}
+  86.362% {opacity:1}
+  100.000% {opacity:1}
+}
+.s_u3_3{animation-name:s_u3_3}
+@keyframes cap0 {
+  0.000% {opacity:1}
+  16.500% {opacity:1}
+  16.667% {opacity:0}
+  100.000% {opacity:0}
+}
+.cap0{animation-name:cap0}
+@keyframes cap1 {
+  0.000% {opacity:0}
+  16.500% {opacity:0}
+  16.667% {opacity:1}
+  33.167% {opacity:1}
+  33.333% {opacity:0}
+  100.000% {opacity:0}
+}
+.cap1{animation-name:cap1}
+@keyframes cap2 {
+  0.000% {opacity:0}
+  33.167% {opacity:0}
+  33.333% {opacity:1}
+  49.833% {opacity:1}
+  50.000% {opacity:0}
+  100.000% {opacity:0}
+}
+.cap2{animation-name:cap2}
+@keyframes cap3 {
+  0.000% {opacity:0}
+  49.833% {opacity:0}
+  50.000% {opacity:1}
+  70.667% {opacity:1}
+  70.833% {opacity:0}
+  100.000% {opacity:0}
+}
+.cap3{animation-name:cap3}
+@keyframes cap4 {
+  0.000% {opacity:0}
+  70.667% {opacity:0}
+  70.833% {opacity:1}
+  87.333% {opacity:1}
+  87.500% {opacity:0}
+  100.000% {opacity:0}
+}
+.cap4{animation-name:cap4}
+@keyframes cap5 {
+  0.000% {opacity:0}
+  87.333% {opacity:0}
+  87.500% {opacity:1}
+  100.000% {opacity:1}
+}
+.cap5{animation-name:cap5}
+</style>
+<rect x="0" y="0" width="760" height="400" rx="12" fill="var(--bg)" stroke="var(--edge)"/>
+<line class="edge" x1="380" y1="44" x2="380" y2="122"/>
+<line class="edge" x1="380" y1="122" x2="200" y2="206"/>
+<line class="edge" x1="380" y1="122" x2="560" y2="206"/>
+<line class="edge" x1="200" y1="206" x2="90" y2="296"/>
+<line class="edge" x1="200" y1="206" x2="200" y2="296"/>
+<line class="edge" x1="200" y1="206" x2="310" y2="296"/>
+<line class="edge" x1="560" y1="206" x2="450" y2="296"/>
+<line class="edge" x1="560" y1="206" x2="560" y2="296"/>
+<line class="edge" x1="560" y1="206" x2="670" y2="296"/>
+<circle class="pk p0" cx="380" cy="44" r="5"/>
+<circle class="pk p1" cx="380" cy="44" r="5"/>
+<circle class="pk p2" cx="380" cy="44" r="5"/>
+<circle class="pk p3" cx="380" cy="44" r="5"/>
+<circle class="pk p4" cx="380" cy="44" r="5"/>
+<circle class="pk p5" cx="380" cy="44" r="5"/>
+<circle class="pk p6" cx="380" cy="44" r="5"/>
+<circle class="pk p7" cx="380" cy="44" r="5"/>
+<circle class="pk p8" cx="380" cy="44" r="5"/>
+<circle class="pk p9" cx="380" cy="44" r="5"/>
+<circle class="pk p10" cx="380" cy="44" r="5"/>
+<circle class="pk p11" cx="380" cy="44" r="5"/>
+<circle class="pk p12" cx="380" cy="44" r="5"/>
+<circle class="pk p13" cx="380" cy="44" r="5"/>
+<circle class="pk p14" cx="380" cy="44" r="5"/>
+<circle class="pk p15" cx="380" cy="44" r="5"/>
+<circle class="pk p16" cx="380" cy="44" r="5"/>
+<circle class="pk p17" cx="380" cy="44" r="5"/>
+<circle class="pk p18" cx="380" cy="44" r="6"/>
+<circle class="pk p19" cx="380" cy="44" r="6"/>
+<circle class="pk p20" cx="380" cy="44" r="5"/>
+<circle class="pk p21" cx="380" cy="44" r="6"/>
+<rect class="box" x="300" y="26" width="160" height="36" rx="9"/>
+<text class="mono" x="380" y="48" text-anchor="middle" font-size="12">composite.Pick()</text>
+<rect id="n_root" class="box a" x="305" y="99" width="150" height="46" rx="9"/>
+<text x="380" y="119" text-anchor="middle" font-size="14" font-weight="600">payments</text>
+<text class="a s_root_0 ok mono" x="380" y="136" text-anchor="middle" font-size="11" opacity="1">closed</text>
+<text class="a s_root_1 bad mono" x="380" y="136" text-anchor="middle" font-size="11" opacity="0">open</text>
+<text class="a s_root_2 probe mono" x="380" y="136" text-anchor="middle" font-size="11" opacity="0">half-open</text>
+<text class="a s_root_3 ok mono" x="380" y="136" text-anchor="middle" font-size="11" opacity="0">closed</text>
+<rect id="n_eu" class="box a" x="135" y="183" width="130" height="46" rx="9"/>
+<text x="200" y="203" text-anchor="middle" font-size="14" font-weight="600">eu-west</text>
+<text class="a s_eu_0 ok mono" x="200" y="220" text-anchor="middle" font-size="11" opacity="1">closed</text>
+<text class="a s_eu_1 bad mono" x="200" y="220" text-anchor="middle" font-size="11" opacity="0">open</text>
+<text class="a s_eu_2 probe mono" x="200" y="220" text-anchor="middle" font-size="11" opacity="0">half-open</text>
+<text class="a s_eu_3 ok mono" x="200" y="220" text-anchor="middle" font-size="11" opacity="0">closed</text>
+<rect id="n_us" class="box a" x="495" y="183" width="130" height="46" rx="9"/>
+<text x="560" y="203" text-anchor="middle" font-size="14" font-weight="600">us-east</text>
+<text class="a s_us_0 ok mono" x="560" y="220" text-anchor="middle" font-size="11" opacity="1">closed</text>
+<text class="a s_us_1 bad mono" x="560" y="220" text-anchor="middle" font-size="11" opacity="0">open</text>
+<text class="a s_us_2 probe mono" x="560" y="220" text-anchor="middle" font-size="11" opacity="0">half-open</text>
+<text class="a s_us_3 ok mono" x="560" y="220" text-anchor="middle" font-size="11" opacity="0">closed</text>
+<rect id="n_e1" class="box a" x="40" y="274" width="100" height="44" rx="9"/>
+<text class="mono" x="90" y="293" text-anchor="middle" font-size="12" font-weight="600">10.0.1.5</text>
+<text class="a s_e1_0 ok mono" x="90" y="310" text-anchor="middle" font-size="11" opacity="1">closed</text>
+<text class="a s_e1_1 bad mono" x="90" y="310" text-anchor="middle" font-size="11" opacity="0">open</text>
+<text class="a s_e1_2 probe mono" x="90" y="310" text-anchor="middle" font-size="11" opacity="0">half-open</text>
+<text class="a s_e1_3 ok mono" x="90" y="310" text-anchor="middle" font-size="11" opacity="0">closed</text>
+<rect id="n_e2" class="box a" x="150" y="274" width="100" height="44" rx="9"/>
+<text class="mono" x="200" y="293" text-anchor="middle" font-size="12" font-weight="600">10.0.1.6</text>
+<text class="a s_e2_0 ok mono" x="200" y="310" text-anchor="middle" font-size="11" opacity="1">closed</text>
+<text class="a s_e2_1 bad mono" x="200" y="310" text-anchor="middle" font-size="11" opacity="0">open</text>
+<text class="a s_e2_2 probe mono" x="200" y="310" text-anchor="middle" font-size="11" opacity="0">half-open</text>
+<rect id="n_e3" class="box a" x="260" y="274" width="100" height="44" rx="9"/>
+<text class="mono" x="310" y="293" text-anchor="middle" font-size="12" font-weight="600">10.0.1.7</text>
+<text class="a s_e3_0 ok mono" x="310" y="310" text-anchor="middle" font-size="11" opacity="1">closed</text>
+<rect id="n_u1" class="box a" x="400" y="274" width="100" height="44" rx="9"/>
+<text class="mono" x="450" y="293" text-anchor="middle" font-size="12" font-weight="600">10.0.2.5</text>
+<text class="a s_u1_0 ok mono" x="450" y="310" text-anchor="middle" font-size="11" opacity="1">closed</text>
+<rect id="n_u2" class="box a" x="510" y="274" width="100" height="44" rx="9"/>
+<text class="mono" x="560" y="293" text-anchor="middle" font-size="12" font-weight="600">10.0.2.6</text>
+<text class="a s_u2_0 ok mono" x="560" y="310" text-anchor="middle" font-size="11" opacity="1">closed</text>
+<text class="a s_u2_1 bad mono" x="560" y="310" text-anchor="middle" font-size="11" opacity="0">open</text>
+<text class="a s_u2_2 probe mono" x="560" y="310" text-anchor="middle" font-size="11" opacity="0">half-open</text>
+<text class="a s_u2_3 ok mono" x="560" y="310" text-anchor="middle" font-size="11" opacity="0">closed</text>
+<rect id="n_u3" class="box a" x="620" y="274" width="100" height="44" rx="9"/>
+<text class="mono" x="670" y="293" text-anchor="middle" font-size="12" font-weight="600">10.0.2.7</text>
+<text class="a s_u3_0 ok mono" x="670" y="310" text-anchor="middle" font-size="11" opacity="1">closed</text>
+<text class="a s_u3_1 bad mono" x="670" y="310" text-anchor="middle" font-size="11" opacity="0">open</text>
+<text class="a s_u3_2 probe mono" x="670" y="310" text-anchor="middle" font-size="11" opacity="0">half-open</text>
+<text class="a s_u3_3 ok mono" x="670" y="310" text-anchor="middle" font-size="11" opacity="0">closed</text>
+<g font-size="11">
+  <text x="24" y="30" class="muted">every parent trips on</text>
+  <text x="24" y="46" class="muted mono">OpenChildren(2)</text>
+  <circle cx="584" cy="26" r="5" fill="var(--req)"/><text x="594" y="30" class="muted">request</text>
+  <circle cx="660" cy="26" r="5" fill="var(--probe)"/><text x="670" y="30" class="muted">probe</text>
+  <circle cx="584" cy="46" r="5" fill="var(--ok)"/><text x="594" y="50" class="muted">success</text>
+  <circle cx="660" cy="46" r="5" fill="var(--bad)"/><text x="670" y="50" class="muted">failure</text>
+</g>
+<text class="a cap0" x="380" y="372" text-anchor="middle" font-size="14" opacity="1">Pick walks the tree, taking one permit per level, to a closed host</text>
+<text class="a cap1" x="380" y="372" text-anchor="middle" font-size="14" opacity="0">A host fails and opens; Pick skips it and uses its siblings</text>
+<text class="a cap2" x="380" y="372" text-anchor="middle" font-size="14" opacity="0">A second host opens: eu-west trips and traffic shifts to us-east</text>
+<text class="a cap3" x="380" y="372" text-anchor="middle" font-size="14" opacity="0">us-east trips too, so payments trips and calls fail fast at the root</text>
+<text class="a cap4" x="380" y="372" text-anchor="middle" font-size="14" opacity="0">Hosts' backoff elapses: parents go HalfOpen early and a probe closes the path</text>
+<text class="a cap5" x="380" y="372" text-anchor="middle" font-size="14" opacity="0">eu-west recovers the same way</text>
+</svg>

@@ -14,6 +14,11 @@ protocol, and hooks for logging and metrics.
 
 **Status:** v0. The exported API may change between minor versions.
 
+<p align="center">
+  <img src="assets/circuit-breaker.svg" width="760"
+       alt="Animated diagram: calls pass through a Closed breaker; when the dependency fails the breaker trips Open and rejects calls with ErrOpen; after the backoff it goes HalfOpen, a probe succeeds, and it closes again.">
+</p>
+
 ## Installation
 
 ```bash
@@ -325,6 +330,11 @@ policy is a `TripFunc` over the number of open children and the parent's
 own counts. `Pick` takes a permit from the parent, then walks the children
 round-robin to the first one that admits the call, and returns a `Lease`
 holding one permit per level. `RecordLease` settles them all, leaf first.
+
+<p align="center">
+  <img src="assets/composite-breaker.svg" width="760"
+       alt="Animated diagram: a payments composite with regions eu-west and us-east, three hosts each. Pick skips open hosts; two open hosts trip a region; two open regions trip the root, which then fails fast; when the hosts' backoff elapses the parents go HalfOpen early and a probe closes the path.">
+</p>
 
 Dependency A calls dependency B, which runs on three instances:
 
