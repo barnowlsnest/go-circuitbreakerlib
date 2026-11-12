@@ -1,0 +1,424 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 300" width="760" height="300" role="img" aria-labelledby="title desc">
+<title id="title">How go-circuitbreakerlib works</title>
+<desc id="desc">Calls flow from your service through the breaker to a dependency. When the dependency fails, the breaker trips Open and rejects calls fast with ErrOpen. After the backoff it goes HalfOpen, lets a probe through, and closes again when the probe succeeds.</desc>
+<style>
+:root, svg {
+  --bg:#ffffff; --card:#f6f8fa; --edge:#d0d7de; --fg:#1f2328; --muted:#59636e;
+  --ok:#1a7f37; --bad:#cf222e; --probe:#bf8700; --req:#0969da; --track:#e6e9ed;
+}
+@media (prefers-color-scheme: dark) {
+  :root, svg {
+    --bg:#0d1117; --card:#161b22; --edge:#30363d; --fg:#e6edf3; --muted:#9198a1;
+    --ok:#3fb950; --bad:#f85149; --probe:#d29922; --req:#4493f8; --track:#262c36;
+  }
+}
+text { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill:var(--fg); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.muted { fill:var(--muted); }
+.a { animation-duration:14.0s; animation-iteration-count:infinite; animation-timing-function:linear; }
+.pk { animation-duration:14.0s; animation-iteration-count:infinite; animation-timing-function:linear; opacity:0; }
+.box { fill:var(--card); stroke:var(--edge); stroke-width:1.5; }
+#brkBox { stroke-width:2.5; animation-name:brk; }
+#depBox { stroke-width:2.5; animation-name:dep; }
+#lever { transform-box:view-box; transform-origin:350px 114px; animation-name:lever; }
+#wireR { animation-name:wire; }
+.wire { stroke:var(--edge); stroke-width:2; stroke-dasharray:4 5; }
+.track { fill:var(--track); }
+#meter { fill:var(--bad); transform-box:fill-box; transform-origin:left center; animation-name:meter; }
+#backoff { fill:var(--probe); transform-box:fill-box; transform-origin:left center; animation-name:backoff; }
+#meterLabel { animation-name:meterLabel; }
+#backoffLabel { animation-name:backoffLabel; opacity:0; }
+.ok { fill:var(--ok); } .bad { fill:var(--bad); } .probe { fill:var(--probe); }
+@media (prefers-reduced-motion: reduce) { .a, .pk { animation-play-state:paused; } }
+@keyframes p0 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  1.143% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  1.429% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  6.429% {opacity:1;transform:translate(420.0px,-11px);fill:var(--req)}
+  7.000% {opacity:1;transform:translate(420.0px,11px);fill:var(--ok)}
+  12.000% {opacity:1;transform:translate(0.0px,11px);fill:var(--ok)}
+  12.286% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+}
+.p0{animation-name:p0}
+@keyframes p1 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  6.143% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  6.429% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  11.429% {opacity:1;transform:translate(420.0px,-11px);fill:var(--req)}
+  12.000% {opacity:1;transform:translate(420.0px,11px);fill:var(--ok)}
+  17.000% {opacity:1;transform:translate(0.0px,11px);fill:var(--ok)}
+  17.286% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+}
+.p1{animation-name:p1}
+@keyframes p2 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  11.143% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  11.429% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  16.429% {opacity:1;transform:translate(420.0px,-11px);fill:var(--req)}
+  17.000% {opacity:1;transform:translate(420.0px,11px);fill:var(--ok)}
+  22.000% {opacity:1;transform:translate(0.0px,11px);fill:var(--ok)}
+  22.286% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+}
+.p2{animation-name:p2}
+@keyframes p3 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  16.143% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  16.429% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  21.429% {opacity:1;transform:translate(420.0px,-11px);fill:var(--req)}
+  22.000% {opacity:1;transform:translate(420.0px,11px);fill:var(--ok)}
+  27.000% {opacity:1;transform:translate(0.0px,11px);fill:var(--ok)}
+  27.286% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+}
+.p3{animation-name:p3}
+@keyframes p4 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  24.714% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  25.000% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  30.000% {opacity:1;transform:translate(420.0px,-11px);fill:var(--req)}
+  30.571% {opacity:1;transform:translate(420.0px,11px);fill:var(--bad)}
+  35.571% {opacity:1;transform:translate(0.0px,11px);fill:var(--bad)}
+  35.857% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+}
+.p4{animation-name:p4}
+@keyframes p5 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  29.714% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  30.000% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  35.000% {opacity:1;transform:translate(420.0px,-11px);fill:var(--req)}
+  35.571% {opacity:1;transform:translate(420.0px,11px);fill:var(--bad)}
+  40.571% {opacity:1;transform:translate(0.0px,11px);fill:var(--bad)}
+  40.857% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+}
+.p5{animation-name:p5}
+@keyframes p6 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  34.714% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  35.000% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  40.000% {opacity:1;transform:translate(420.0px,-11px);fill:var(--req)}
+  40.571% {opacity:1;transform:translate(420.0px,11px);fill:var(--bad)}
+  45.571% {opacity:1;transform:translate(0.0px,11px);fill:var(--bad)}
+  45.857% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+}
+.p6{animation-name:p6}
+@keyframes p7 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  48.286% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  48.571% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  50.238% {opacity:1;transform:translate(140.0px,-11px);fill:var(--req)}
+  50.810% {opacity:1;transform:translate(140.0px,11px);fill:var(--bad)}
+  52.476% {opacity:1;transform:translate(0.0px,11px);fill:var(--bad)}
+  52.762% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+}
+.p7{animation-name:p7}
+@keyframes p8 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  53.286% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  53.571% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  55.238% {opacity:1;transform:translate(140.0px,-11px);fill:var(--req)}
+  55.810% {opacity:1;transform:translate(140.0px,11px);fill:var(--bad)}
+  57.476% {opacity:1;transform:translate(0.0px,11px);fill:var(--bad)}
+  57.762% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+}
+.p8{animation-name:p8}
+@keyframes p9 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  58.286% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  58.571% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  60.238% {opacity:1;transform:translate(140.0px,-11px);fill:var(--req)}
+  60.810% {opacity:1;transform:translate(140.0px,11px);fill:var(--bad)}
+  62.476% {opacity:1;transform:translate(0.0px,11px);fill:var(--bad)}
+  62.762% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+}
+.p9{animation-name:p9}
+@keyframes p10 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  63.286% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  63.571% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  65.238% {opacity:1;transform:translate(140.0px,-11px);fill:var(--req)}
+  65.810% {opacity:1;transform:translate(140.0px,11px);fill:var(--bad)}
+  67.476% {opacity:1;transform:translate(0.0px,11px);fill:var(--bad)}
+  67.762% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+}
+.p10{animation-name:p10}
+@keyframes p11 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  67.571% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  67.857% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  69.524% {opacity:1;transform:translate(140.0px,-11px);fill:var(--req)}
+  70.095% {opacity:1;transform:translate(140.0px,11px);fill:var(--bad)}
+  71.762% {opacity:1;transform:translate(0.0px,11px);fill:var(--bad)}
+  72.048% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--bad)}
+}
+.p11{animation-name:p11}
+@keyframes p12 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--probe)}
+  71.857% {opacity:0;transform:translate(0.0px,-11px);fill:var(--probe)}
+  72.143% {opacity:1;transform:translate(0.0px,-11px);fill:var(--probe)}
+  77.143% {opacity:1;transform:translate(420.0px,-11px);fill:var(--probe)}
+  77.714% {opacity:1;transform:translate(420.0px,11px);fill:var(--ok)}
+  82.714% {opacity:1;transform:translate(0.0px,11px);fill:var(--ok)}
+  83.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+}
+.p12{animation-name:p12}
+@keyframes p13 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  82.571% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  82.857% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  87.857% {opacity:1;transform:translate(420.0px,-11px);fill:var(--req)}
+  88.429% {opacity:1;transform:translate(420.0px,11px);fill:var(--ok)}
+  93.429% {opacity:1;transform:translate(0.0px,11px);fill:var(--ok)}
+  93.714% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+}
+.p13{animation-name:p13}
+@keyframes p14 {
+  0.000% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  87.571% {opacity:0;transform:translate(0.0px,-11px);fill:var(--req)}
+  87.857% {opacity:1;transform:translate(0.0px,-11px);fill:var(--req)}
+  92.857% {opacity:1;transform:translate(420.0px,-11px);fill:var(--req)}
+  93.429% {opacity:1;transform:translate(420.0px,11px);fill:var(--ok)}
+  98.429% {opacity:1;transform:translate(0.0px,11px);fill:var(--ok)}
+  98.714% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+  100.000% {opacity:0;transform:translate(0.0px,11px);fill:var(--ok)}
+}
+.p14{animation-name:p14}
+@keyframes sClosedA {
+  0.000% {opacity:1}
+  44.714% {opacity:1}
+  45.000% {opacity:0}
+  100.000% {opacity:0}
+}
+.sClosedA{animation-name:sClosedA}
+@keyframes sOpen {
+  0.000% {opacity:0}
+  44.714% {opacity:0}
+  45.000% {opacity:1}
+  71.143% {opacity:1}
+  71.429% {opacity:0}
+  100.000% {opacity:0}
+}
+.sOpen{animation-name:sOpen}
+@keyframes sHalf {
+  0.000% {opacity:0}
+  71.143% {opacity:0}
+  71.429% {opacity:1}
+  79.357% {opacity:1}
+  79.643% {opacity:0}
+  100.000% {opacity:0}
+}
+.sHalf{animation-name:sHalf}
+@keyframes sClosedB {
+  0.000% {opacity:0}
+  79.357% {opacity:0}
+  79.643% {opacity:1}
+  100.000% {opacity:1}
+}
+.sClosedB{animation-name:sClosedB}
+@keyframes c1 {
+  0.000% {opacity:1}
+  24.000% {opacity:1}
+  24.286% {opacity:0}
+  100.000% {opacity:0}
+}
+.c1{animation-name:c1}
+@keyframes c2 {
+  0.000% {opacity:0}
+  24.000% {opacity:0}
+  24.286% {opacity:1}
+  44.714% {opacity:1}
+  45.000% {opacity:0}
+  100.000% {opacity:0}
+}
+.c2{animation-name:c2}
+@keyframes c3 {
+  0.000% {opacity:0}
+  44.714% {opacity:0}
+  45.000% {opacity:1}
+  71.143% {opacity:1}
+  71.429% {opacity:0}
+  100.000% {opacity:0}
+}
+.c3{animation-name:c3}
+@keyframes c4 {
+  0.000% {opacity:0}
+  71.143% {opacity:0}
+  71.429% {opacity:1}
+  79.357% {opacity:1}
+  79.643% {opacity:0}
+  100.000% {opacity:0}
+}
+.c4{animation-name:c4}
+@keyframes c5 {
+  0.000% {opacity:0}
+  79.357% {opacity:0}
+  79.643% {opacity:1}
+  100.000% {opacity:1}
+}
+.c5{animation-name:c5}
+@keyframes dUp {
+  0.000% {opacity:1}
+  24.000% {opacity:1}
+  24.286% {opacity:0}
+  100.000% {opacity:0}
+}
+.dUp{animation-name:dUp}
+@keyframes dDown {
+  0.000% {opacity:0}
+  24.000% {opacity:0}
+  24.286% {opacity:1}
+  68.286% {opacity:1}
+  68.571% {opacity:0}
+  100.000% {opacity:0}
+}
+.dDown{animation-name:dDown}
+@keyframes dUp2 {
+  0.000% {opacity:0}
+  68.286% {opacity:0}
+  68.571% {opacity:1}
+  100.000% {opacity:1}
+}
+.dUp2{animation-name:dUp2}
+@keyframes brk {
+  0.000% {stroke:var(--ok)}
+  44.714% {stroke:var(--ok)}
+  45.000% {stroke:var(--bad)}
+  71.143% {stroke:var(--bad)}
+  71.429% {stroke:var(--probe)}
+  79.357% {stroke:var(--probe)}
+  79.643% {stroke:var(--ok)}
+  100.000% {stroke:var(--ok)}
+}
+@keyframes dep {
+  0.000% {stroke:var(--ok)}
+  24.000% {stroke:var(--ok)}
+  24.286% {stroke:var(--bad)}
+  68.286% {stroke:var(--bad)}
+  68.571% {stroke:var(--ok)}
+  100.000% {stroke:var(--ok)}
+}
+@keyframes lever {
+  0.000% {transform:rotate(0deg)}
+  44.143% {transform:rotate(0deg)}
+  45.000% {transform:rotate(-30deg)}
+  70.571% {transform:rotate(-30deg)}
+  71.429% {transform:rotate(-16deg)}
+  78.786% {transform:rotate(-16deg)}
+  79.643% {transform:rotate(0deg)}
+  100.000% {transform:rotate(0deg)}
+}
+@keyframes wire {
+  0.000% {opacity:1}
+  44.714% {opacity:1}
+  45.000% {opacity:0.25}
+  71.143% {opacity:0.25}
+  71.429% {opacity:1}
+  100.000% {opacity:1}
+}
+@keyframes meter {
+  0.000% {transform:scaleX(0)}
+  31.167% {transform:scaleX(0.000)}
+  32.238% {transform:scaleX(0.333)}
+  36.167% {transform:scaleX(0.333)}
+  37.238% {transform:scaleX(0.667)}
+  41.167% {transform:scaleX(0.667)}
+  42.238% {transform:scaleX(1.000)}
+  47.143% {transform:scaleX(1)}
+  48.571% {transform:scaleX(0)}
+  100.000% {transform:scaleX(0)}
+}
+@keyframes backoff {
+  0.000% {transform:scaleX(0)}
+  45.000% {transform:scaleX(0)}
+  71.429% {transform:scaleX(1)}
+  73.571% {transform:scaleX(0)}
+  100.000% {transform:scaleX(0)}
+}
+@keyframes meterLabel {
+  0.000% {opacity:1}
+  48.286% {opacity:1}
+  48.571% {opacity:0}
+  79.357% {opacity:0}
+  79.643% {opacity:1}
+  100.000% {opacity:1}
+}
+@keyframes backoffLabel {
+  0.000% {opacity:0}
+  44.714% {opacity:0}
+  45.000% {opacity:1}
+  73.286% {opacity:1}
+  73.571% {opacity:0}
+  100.000% {opacity:0}
+}
+</style>
+<rect x="0" y="0" width="760" height="300" rx="12" fill="var(--bg)" stroke="var(--edge)"/>
+
+<line class="wire" x1="170" y1="150" x2="310" y2="150"/>
+<line id="wireR" class="wire a" x1="450" y1="150" x2="590" y2="150"/>
+
+<rect class="box" x="30" y="95" width="140" height="110" rx="10"/>
+<text x="100" y="140" text-anchor="middle" font-size="15" font-weight="600">your service</text>
+<text x="100" y="162" text-anchor="middle" font-size="12" class="muted mono">client.Do(req)</text>
+
+<rect id="brkBox" class="box a" x="310" y="60" width="140" height="185" rx="10"/>
+<text x="380" y="78" text-anchor="middle" font-size="12" class="muted">breaker</text>
+<circle cx="350" cy="114" r="4" fill="var(--fg)"/>
+<circle cx="410" cy="114" r="4" fill="var(--fg)"/>
+<line id="lever" class="a" x1="350" y1="114" x2="406" y2="114" stroke="var(--fg)" stroke-width="3.5" stroke-linecap="round"/>
+<text class="a sClosedA mono ok" x="380" y="186" text-anchor="middle" font-size="15" font-weight="700">CLOSED</text>
+<text class="a sOpen mono bad" x="380" y="186" text-anchor="middle" font-size="15" font-weight="700" opacity="0">OPEN</text>
+<text class="a sHalf mono probe" x="380" y="186" text-anchor="middle" font-size="15" font-weight="700" opacity="0">HALF-OPEN</text>
+<text class="a sClosedB mono ok" x="380" y="186" text-anchor="middle" font-size="15" font-weight="700" opacity="0">CLOSED</text>
+<rect class="track" x="320" y="202" width="120" height="8" rx="4"/>
+<rect id="meter" class="a" x="320" y="202" width="120" height="8" rx="4"/>
+<rect id="backoff" class="a" x="320" y="202" width="120" height="8" rx="4"/>
+<text id="meterLabel" class="a muted" x="380" y="228" text-anchor="middle" font-size="11">failure rate</text>
+<text id="backoffLabel" class="a muted" x="380" y="228" text-anchor="middle" font-size="11">backoff</text>
+
+<rect id="depBox" class="box a" x="590" y="95" width="140" height="110" rx="10"/>
+<text x="660" y="140" text-anchor="middle" font-size="15" font-weight="600">dependency</text>
+<text class="a dUp ok" x="660" y="162" text-anchor="middle" font-size="12">healthy</text>
+<text class="a dDown bad" x="660" y="162" text-anchor="middle" font-size="12" opacity="0">failing</text>
+<text class="a dUp2 ok" x="660" y="162" text-anchor="middle" font-size="12" opacity="0">recovered</text>
+
+<circle class="pk p0" cx="170" cy="150" r="6"/>
+<circle class="pk p1" cx="170" cy="150" r="6"/>
+<circle class="pk p2" cx="170" cy="150" r="6"/>
+<circle class="pk p3" cx="170" cy="150" r="6"/>
+<circle class="pk p4" cx="170" cy="150" r="6"/>
+<circle class="pk p5" cx="170" cy="150" r="6"/>
+<circle class="pk p6" cx="170" cy="150" r="6"/>
+<circle class="pk p7" cx="170" cy="150" r="6"/>
+<circle class="pk p8" cx="170" cy="150" r="6"/>
+<circle class="pk p9" cx="170" cy="150" r="6"/>
+<circle class="pk p10" cx="170" cy="150" r="6"/>
+<circle class="pk p11" cx="170" cy="150" r="6"/>
+<circle class="pk p12" cx="170" cy="150" r="7"/>
+<circle class="pk p13" cx="170" cy="150" r="6"/>
+<circle class="pk p14" cx="170" cy="150" r="6"/>
+
+<text class="a c1" x="380" y="276" text-anchor="middle" font-size="14" opacity="0">Closed: calls pass through and every outcome is counted</text>
+<text class="a c2" x="380" y="276" text-anchor="middle" font-size="14" opacity="0">The dependency fails; the failure rate climbs until a policy trips</text>
+<text class="a c3" x="380" y="276" text-anchor="middle" font-size="14" opacity="0">Open: calls are rejected with ErrOpen without touching the network</text>
+<text class="a c4" x="380" y="276" text-anchor="middle" font-size="14" opacity="0">Backoff elapsed: HalfOpen admits a probe call</text>
+<text class="a c5" x="380" y="276" text-anchor="middle" font-size="14" opacity="0">The probe succeeds, so the breaker closes again</text>
+
+<g font-size="11">
+  <circle cx="40" cy="30" r="5" fill="var(--req)"/><text x="50" y="34" class="muted">request</text>
+  <circle cx="115" cy="30" r="5" fill="var(--ok)"/><text x="125" y="34" class="muted">success</text>
+  <circle cx="190" cy="30" r="5" fill="var(--bad)"/><text x="200" y="34" class="muted">failure / rejected</text>
+  <circle cx="310" cy="30" r="5" fill="var(--probe)"/><text x="320" y="34" class="muted">probe</text>
+</g>
+</svg>
